@@ -1,0 +1,24 @@
+# Runtime data lives outside the repo
+/babs-data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Docker
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (API keys go in .env, not committed)
+*.secret
+*.key
