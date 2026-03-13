@@ -95,18 +95,22 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 
 **Model picker status:** UI functional, selection publishes to NATS, awaiting Supervisor model switching implementation.
 
-**Phase 7.5 - Model Picker & OpenRouter Integration (IN PROGRESS):**
+**Phase 7.5 - Model Picker & Dashboard Enhancements (COMPLETE ✅):**
 1. ✅ OpenRouter API integration (model discovery, routing, cost tracking)
 2. ✅ Model picker UI in dashboard (local + OpenRouter models, filtering, search)
-3. ⏸️ Model download agent (background NATS worker, HuggingFace CLI, progress reporting)
-4. ⏸️ Smart download management (memory headroom check, bandwidth throttling, pause/resume)
-5. ⏸️ Model switching (hot-swap without restart, graceful handoff)
+3. ⏸️ Model download agent (Deferred to Phase 8 Workers)
+4. ⏸️ Smart download management (Deferred to Phase 8 Workers)
+5. ✅ Model switching (hot-swap without restart, thread isolation)
 6. ✅ Cost tracking & budget alerts (session costs, comparison to local)
-7. ⏸️ Trust Tier integration (enforce local-only for sensitive operations)
+7. ✅ Trust Tier integration (enforce local-only for sensitive operations)
+8. ✅ Dashboard Home Navigation (persistent home access)
+9. ✅ Thinking Transparency (WebSocket streaming of supervisor reasoning)
+10. ✅ Multi-modal Input (File/Image attachment parsing and uploads)
+11. ✅ Artifact Display System (Qdrant storage and real-time visualization rendering)
 
-**Rationale:** Enable trying large models via OpenRouter before committing to local download. Solves Super model problem (try via API, download FP8 variant only if satisfied). Sets up download agent pattern for Phase 8 Workers.
+**Rationale:** Enhanced the dashboard to provide full parity with Open WebUI features (file uploads, artifacts, transparency) while enabling OpenRouter fallback. Model downloading logic has been deferred to native background workers in Phase 8.
 
-**Next: Complete Phase 7.5, then Phase 8** (Workers and code execution).
+**Next: Phase 8** (Workers and code execution).
 
 **Latest handoff:** HANDOFF-2026-03-13-CURRENT.md
 
