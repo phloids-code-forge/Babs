@@ -23,6 +23,9 @@ from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 import nats
 from nats.aio.client import Client as NATSClient
+from nats.aio.msg import Msg as NATSMsg
+import aiohttp
+import time
 
 # Model registry and OpenRouter integration
 import sys
@@ -42,6 +45,9 @@ logger = logging.getLogger(__name__)
 # Configuration
 NATS_URL = os.getenv('NATS_URL', 'nats://localhost:4222')
 USER_ID = os.getenv('USER_ID', 'phloid')
+VLLM_URL = os.getenv('VLLM_URL', 'http://vllm-babs:8000/v1')
+QDRANT_URL = os.getenv('QDRANT_URL', 'http://qdrant-babs:6333')
+EMBEDDING_URL = os.getenv('EMBEDDING_URL', 'http://g14:8080')
 
 
 # Pydantic models
@@ -85,6 +91,9 @@ model_registry: Optional[ModelRegistry] = None
 cost_tracker: Optional[CostTracker] = None
 active_model_id: str = "local/nemotron3-nano"  # Default to Nano
 
+# Pending approval requests mapping req_id to NATS Msg
+pending_approvals: Dict[str, NATSMsg] = {}
+
 
 @app.on_event('startup')
 async def startup_event():
@@ -116,6 +125,29 @@ async def startup_event():
     budget_warning = float(os.getenv('COST_BUDGET_WARNING_THRESHOLD', '5.0'))
     cost_tracker = CostTracker(budget_limit=budget_limit, warning_threshold=budget_warning)
     logger.info(f'Cost tracker initialized (limit: ${budget_limit}, warning: ${budget_warning})')
+    
+    # Subscribe to tool approval requests
+    async def handle_tool_approval(msg: NATSMsg):
+        try:
+            data = json.loads(msg.data.decode())
+            req_id = data.get('req_id')
+            if not req_id:
+                return
+            pending_approvals[req_id] = msg
+            logger.info(f"Received tool approval request {req_id} for tool {data.get('tool_name')}")
+            
+            # Broadcast to UI
+            event = {
+                "message": f"Tool '{data.get('tool_name')}' requires approval to execute.",
+                "event_type": "approval_request",
+                "data": data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            await nc.publish("supervisor.thinking", json.dumps(event).encode())
+        except Exception as e:
+            logger.error(f"Error handling tool approval: {e}")
+            
+    await nc.subscribe('dashboard.tool_approval', cb=handle_tool_approval)
 
 
 @app.on_event('shutdown')
@@ -146,40 +178,63 @@ async def health():
 @app.get('/api/services')
 async def get_services() -> List[ServiceStatus]:
     '''Get status of all Babs services'''
-    # TODO: Query actual service health via docker API or health endpoints
-    # For now, return mock data
-    services = [
-        ServiceStatus(
-            name='vLLM (Nemotron 3 Nano)',
-            status='running',
-            details='Port 8000, 65+ tok/s'
-        ),
-        ServiceStatus(
-            name='Supervisor',
-            status='running',
-            details='Connected to NATS, vLLM, Qdrant, G14'
-        ),
-        ServiceStatus(
-            name='NATS',
-            status='running',
-            details='JetStream enabled'
-        ),
-        ServiceStatus(
-            name='Qdrant',
-            status='running',
-            details='Procedural Memory: 5 entries'
-        ),
-        ServiceStatus(
-            name='SearXNG (G14)',
-            status='running',
-            details='Web search enabled'
-        ),
-        ServiceStatus(
-            name='Embedding (G14)',
-            status='running',
-            details='nomic-embed-text-v1.5, 768-dim'
-        )
-    ]
+    services = []
+    
+    # 1. NATS
+    nats_status = 'running' if nc and nc.is_connected else 'offline'
+    services.append(ServiceStatus(
+        name='NATS',
+        status=nats_status,
+        details='Connected' if nats_status == 'running' else 'Disconnected'
+    ))
+
+    # Perform external health checks concurrently
+    async def check_url(url: str, name: str, success_details: str) -> ServiceStatus:
+        try:
+            # For vLLM models endpoint
+            if 'v1' in url:
+                check_url = f"{url}/models"
+            else:
+                check_url = url
+                
+            async with aiohttp.ClientSession() as session:
+                async with session.get(check_url, timeout=2.0) as fw:
+                    if fw.status in (200, 404):  # 404 is okay if base url was pinged but expects specific path
+                        return ServiceStatus(name=name, status='running', details=success_details)
+        except Exception:
+            pass
+        return ServiceStatus(name=name, status='offline', details='Unreachable')
+
+    async def check_supervisor() -> ServiceStatus:
+        if not nc or not nc.is_connected:
+            return ServiceStatus(name='Supervisor', status='offline', details='NATS offline')
+        try:
+            # We'll need to implement supervisor.ping in supervisor.py
+            await nc.request('supervisor.ping', b'', timeout=2.0)
+            return ServiceStatus(name='Supervisor', status='running', details='Connected & Responsive')
+        except Exception:
+            return ServiceStatus(name='Supervisor', status='offline', details='Unreachable via NATS')
+
+    # Gather results
+    results = await asyncio.gather(
+        check_url(VLLM_URL, 'vLLM (Inference)', 'Responsive'),
+        check_supervisor(),
+        check_url(QDRANT_URL, 'Qdrant (Memory)', 'Responsive'),
+        check_url(EMBEDDING_URL, 'Embedding (G14)', 'Responsive'),
+        return_exceptions=True
+    )
+
+    for r in results:
+        if isinstance(r, ServiceStatus):
+            services.append(r)
+
+    # Added searxng statically assuming g14 handles it
+    services.append(ServiceStatus(
+        name='SearXNG (G14)',
+        status='running',
+        details='Web search enabled'
+    ))
+
     return services
 
 
@@ -447,6 +502,29 @@ async def select_model(request: ModelSelectRequest) -> Dict[str, Any]:
         logger.error(f'Error switching model: {e}', exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post('/api/tools/{req_id}/approve')
+async def approve_tool(req_id: str) -> Dict[str, Any]:
+    '''Approve a pending tool request'''
+    msg = pending_approvals.pop(req_id, None)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Approval request not found or expired")
+    try:
+        await msg.respond(json.dumps({"approved": True}).encode())
+        return {"success": True, "status": "approved"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post('/api/tools/{req_id}/deny')
+async def deny_tool(req_id: str) -> Dict[str, Any]:
+    '''Deny a pending tool request'''
+    msg = pending_approvals.pop(req_id, None)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Approval request not found or expired")
+    try:
+        await msg.respond(json.dumps({"approved": False}).encode())
+        return {"success": True, "status": "denied"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get('/api/model/active')
 async def get_active_model() -> Dict[str, Any]:

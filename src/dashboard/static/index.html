@@ -69,7 +69,28 @@
 
     <div x-data="dashboard()" x-init="init()" class="min-h-screen">
         <!-- Main Workspace -->
-        <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <div class="container mx-auto px-4 py-6 max-w-7xl relative">
+            
+            <!-- Approval Requests Floating UI -->
+            <div x-show="approvalRequests.length > 0" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 space-y-4">
+                <template x-for="req in approvalRequests" :key="req.req_id">
+                    <div class="bg-gray-800 border-2 babs-border-accent rounded-lg shadow-2xl p-4 w-96">
+                        <div class="font-bold text-lg mb-2 babs-text-accent flex items-center">
+                            <i class="fas fa-shield-alt mr-2"></i> Action Approval Required
+                        </div>
+                        <p class="text-sm text-gray-300 mb-2">Babs wants to execute a tool that requires your permission (Tier <span x-text="req.trust_tier"></span>).</p>
+                        <div class="bg-gray-900 rounded p-2 mb-3 text-sm">
+                            <div class="font-semibold text-blue-400 mb-1" x-text="req.tool_name"></div>
+                            <pre class="text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap" x-text="JSON.stringify(req.arguments, null, 2)"></pre>
+                        </div>
+                        <div class="flex justify-end space-x-2 mt-4">
+                            <button @click="respondToApproval(req.req_id, false)" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors">Deny</button>
+                            <button @click="respondToApproval(req.req_id, true)" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors">Approve</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
             <!-- Split Layout -->
             <div class="flex flex-col lg:flex-row gap-6" style="height: calc(100vh - 180px);">
                 <!-- Left Panel (70%): Babs Interaction -->
@@ -160,6 +181,30 @@
                         </div>
                     </div>
 
+                    <!-- System Status Panel -->
+                    <div class="babs-bg-secondary rounded-lg border border-gray-700" x-show="showServices">
+                        <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                            <div class="flex items-center space-x-2">
+                                <i class="fas fa-server babs-text-accent"></i>
+                                <span class="font-semibold">🖥️ System Status</span>
+                            </div>
+                        </div>
+                        <div class="p-4 space-y-3 max-h-48 overflow-y-auto text-sm">
+                            <template x-for="service in services" :key="service.name">
+                                <div class="flex justify-between items-center bg-gray-800 p-2 rounded border border-gray-700">
+                                    <div>
+                                        <div class="font-semibold text-gray-200" x-text="service.name"></div>
+                                        <div class="text-xs text-gray-400" x-text="service.details"></div>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="flex w-3 h-3 rounded-full" :class="service.status === 'running' ? 'bg-green-500' : 'bg-red-500'"></span>
+                                        <span class="text-xs uppercase font-semibold" :class="service.status === 'running' ? 'text-green-500' : 'text-red-500'" x-text="service.status"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
                     <!-- Artifacts Gallery -->
                     <div class="babs-bg-secondary rounded-lg border border-gray-700 flex-1">
                         <div class="flex justify-between items-center p-4 border-b border-gray-700">
@@ -191,6 +236,7 @@
                 showServices: true,
                 threadId: generateUUID(),
                 selectedFiles: [],
+                approvalRequests: [],
 
                 handleFileSelect(event) {
                     const objectFiles = Array.from(event.target.files);
@@ -221,6 +267,9 @@
                     this.thinkingSocket.onmessage = (event) => {
                         try {
                             const data = JSON.parse(event.data);
+                            if (data.event_type === 'approval_request') {
+                                this.approvalRequests.push(data.data);
+                            }
                             this.addThinkingItem(data.message, data.event_type);
                         } catch (e) {
                             console.error('Error parsing thinking event', e);
@@ -260,7 +309,9 @@
                         'info': '💭',
                         'tool': '🔧',
                         'memory': '🧠',
-                        'error': '❌'
+                        'error': '❌',
+                        'warning': '⚠️',
+                        'approval_request': '🛡️'
                     };
                     const icon = icons[type] || '💭';
                     
@@ -314,6 +365,20 @@
                         }
                     } catch (error) {
                         console.error('Failed to load active model:', error);
+                    }
+                },
+
+                async respondToApproval(reqId, approved) {
+                    const endpoint = approved ? `/api/tools/${reqId}/approve` : `/api/tools/${reqId}/deny`;
+                    try {
+                        const response = await fetch(endpoint, { method: 'POST' });
+                        if (response.ok) {
+                            this.approvalRequests = this.approvalRequests.filter(req => req.req_id !== reqId);
+                        } else {
+                            console.error('Failed to respond to approval request');
+                        }
+                    } catch (error) {
+                        console.error('Error responding to approval:', error);
                     }
                 },
 

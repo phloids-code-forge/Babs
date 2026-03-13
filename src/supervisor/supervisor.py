@@ -560,19 +560,49 @@ class SupervisorService:
                 func_name = tool_call.function.name
                 func_args = json.loads(tool_call.function.arguments)
 
-                # Execute tool (Tier 0 tools auto-execute)
-                await self.publish_thinking(f"Executing tool {func_name}...", "tool")
+                # Execute tool (Tier 0 tools auto-execute, Tier 2/3 wait for approval)
+                tool = self.tool_registry.get_tool(func_name)
+                approved = True
+                
+                if tool and tool.trust_tier >= TrustTier.TIER_2:
+                    req_id = str(__import__('uuid').uuid4())
+                    approval_req = {
+                        "req_id": req_id,
+                        "tool_name": func_name,
+                        "arguments": func_args,
+                        "trust_tier": tool.trust_tier.value,
+                        "description": tool.description
+                    }
+                    await self.publish_thinking(f"Waiting for approval to execute {func_name}...", "warning")
+                    try:
+                        # Request approval with a long timeout (e.g. 1 hour)
+                        resp = await self.nc.request(
+                            "dashboard.tool_approval", 
+                            json.dumps(approval_req).encode(), 
+                            timeout=3600
+                        )
+                        resp_data = json.loads(resp.data.decode())
+                        approved = resp_data.get("approved", False)
+                    except Exception as e:
+                        logger.error(f"Error waiting for tool approval: {e}")
+                        approved = False
+
+                if approved:
+                    await self.publish_thinking(f"Executing tool {func_name}...", "tool")
+                else:
+                    await self.publish_thinking(f"Tool {func_name} execution denied or failed approval.", "error")
+                    
                 result = await self.tool_registry.execute(
                     func_name,
                     func_args,
-                    approved=True  # TODO: Implement approval queue for Tier 2/3
+                    approved=approved
                 )
 
                 tool_results.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": func_name,
-                    "content": json.dumps(result.result)
+                    "content": json.dumps(result.result if result.success else {"error": result.error})
                 })
 
                 logger.info(
@@ -621,6 +651,13 @@ class SupervisorService:
 
         return response
 
+    async def handle_ping(self, msg: NATSMsg):
+        """Handle ping requests to check Supervisor health"""
+        try:
+            await msg.respond(b'pong')
+        except Exception as e:
+            logger.error(f"Error handling ping: {e}", exc_info=True)
+
     async def run(self):
         """Run the Supervisor service"""
         await self.connect()
@@ -632,6 +669,10 @@ class SupervisorService:
         # Subscribe to model switch subject
         logger.info("Subscribing to supervisor.model_switch subject")
         await self.nc.subscribe("supervisor.model_switch", cb=self.handle_model_switch)
+
+        # Subscribe to supervisor ping subject
+        logger.info("Subscribing to supervisor.ping subject")
+        await self.nc.subscribe("supervisor.ping", cb=self.handle_ping)
 
         logger.info("Supervisor service running. Press Ctrl+C to exit.")
 
