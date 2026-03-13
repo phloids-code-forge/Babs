@@ -180,6 +180,7 @@ According to bootstrap plan (docs/01-hardware-and-infrastructure.md Section 16):
 2. Re-embed Procedural Memory seeds with real G14 embeddings
 3. Add proper service health checks to dashboard (optional)
 4. Build approval queue UI for Tier 2/3 tool actions (optional)
+5. Set up remote Git tracking (repo is currently local-only)
 
 ---
 
