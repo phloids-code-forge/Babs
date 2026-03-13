@@ -11,7 +11,7 @@ import logging
 from typing import Dict, List, Any
 import aiohttp
 
-from tools import Tool, ToolParameter, TrustTier
+from src.supervisor.tools import Tool, ToolParameter, TrustTier
 
 
 logger = logging.getLogger(__name__)

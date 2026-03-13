@@ -25,8 +25,13 @@ from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import ScoredPoint
 
-from tools import ToolRegistry, TrustTier
-from tool_searxng import searxng_tool, search_web
+from src.supervisor.tools import ToolRegistry, TrustTier
+from src.supervisor.tool_searxng import searxng_tool, search_web
+
+# Import model registry and OpenRouter integration
+sys.path.insert(0, '/home/dave/babs')
+from src.supervisor.openrouter import OpenRouterClient, CostTracker, Model
+from src.supervisor.model_registry import ModelRegistry
 
 
 # Configure logging
@@ -71,25 +76,35 @@ class SupervisorService:
         vllm_url: str = "http://localhost:8000/v1",
         model_name: str = "nemotron3-nano",
         qdrant_url: str = "http://localhost:6333",
-        embedding_url: str = "http://g14:8080"
+        embedding_url: str = "http://g14:8080",
+        models_dir: str = "~/babs-data/models",
+        cache_file: str = "~/babs/config/model_registry.json"
     ):
         self.nats_url = nats_url
         self.vllm_url = vllm_url
         self.model_name = model_name
         self.qdrant_url = qdrant_url
         self.embedding_url = embedding_url
+        self.models_dir = models_dir
+        self.cache_file = cache_file
 
         self.nc: Optional[nats.NATS] = None
         self.js: Optional[nats.JetStreamContext] = None
         self.vllm_client: Optional[AsyncOpenAI] = None
         self.qdrant_client: Optional[AsyncQdrantClient] = None
         self.tool_registry: ToolRegistry = ToolRegistry()
+        self.openrouter_client: Optional[OpenRouterClient] = None
+        self.model_registry: Optional[ModelRegistry] = None
+        self.cost_tracker: Optional[CostTracker] = None
 
         # Conversation threads (in-memory for now)
         self.threads: Dict[str, list] = {}
+        
+        # Active model per thread
+        self.active_models: Dict[str, str] = {}  # thread_id -> model_id
 
     async def connect(self):
-        """Connect to NATS, vLLM, and Qdrant"""
+        """Connect to NATS, vLLM, Qdrant, and initialize clients"""
         logger.info(f"Connecting to NATS at {self.nats_url}")
         self.nc = await nats.connect(self.nats_url)
         self.js = self.nc.jetstream()
@@ -103,6 +118,24 @@ class SupervisorService:
         logger.info(f"Connecting to Qdrant at {self.qdrant_url}")
         self.qdrant_client = AsyncQdrantClient(url=self.qdrant_url)
 
+        # Initialize OpenRouter client
+        self.openrouter_client = OpenRouterClient()
+
+        # Initialize model registry
+        self.model_registry = ModelRegistry(
+            models_dir=self.models_dir,
+            cache_file=self.cache_file,
+            openrouter_client=self.openrouter_client
+        )
+        
+        # Load model registry from cache or scan fresh
+        if not self.model_registry.load_from_cache():
+            self.model_registry.list_all()
+            self.model_registry.save_to_cache()
+
+        # Initialize cost tracker
+        self.cost_tracker = CostTracker(budget_limit=20.0, warning_threshold=5.0)
+
         # Register tools
         logger.info("Registering tools...")
         self.tool_registry.register(searxng_tool, search_web)
@@ -115,6 +148,61 @@ class SupervisorService:
             await self.nc.drain()
             logger.info("Supervisor disconnected")
 
+    def _map_to_vllm_model_name(self, model_id: str) -> str:
+        """
+        Map model registry ID to vLLM model name.
+        
+        The model registry uses full names like "nemotron3-nano-nvfp4"
+        but vLLM expects simpler names like "nemotron3-nano".
+        """
+        # Remove "local/" prefix if present
+        if model_id.startswith("local/"):
+            model_id = model_id[6:]  # len("local/") == 6
+        
+        # Map known model names
+        model_mappings = {
+            "nemotron3-nano-nvfp4": "nemotron3-nano",
+            "nemotron3-super-nvfp4": "nemotron3-super",
+        }
+        
+        # Return mapped name or original if no mapping
+        return model_mappings.get(model_id, model_id)
+
+    async def handle_model_switch(self, msg: NATSMsg):
+        """Handle model switch requests from NATS"""
+        try:
+            # Parse message
+            data = json.loads(msg.data.decode())
+            model_id = data.get('model_id')
+            
+            if not model_id:
+                logger.error("Model switch request missing model_id")
+                return
+
+            logger.info(f"Model switch requested: {model_id}")
+
+            # Verify model exists
+            model = self.model_registry.get_model(model_id)
+            if not model:
+                logger.error(f"Model not found: {model_id}")
+                return
+
+            # For local models, check if they can be loaded
+            if model.source == 'local':
+                can_load = self.model_registry.can_load_model(model_id)
+                if not can_load['can_load']:
+                    logger.error(f"Cannot load model: {can_load['reason']}")
+                    return
+
+            logger.info(f"Switching to model: {model_id}")
+            
+            # Note: For now, we're just tracking the active model
+            # In the future, we'll need to actually load/unload models
+            # from vLLM for local models
+
+        except Exception as e:
+            logger.error(f"Error handling model switch: {e}", exc_info=True)
+
     async def handle_message(self, msg: NATSMsg):
         """Handle incoming message from NATS"""
         try:
@@ -124,8 +212,8 @@ class SupervisorService:
 
             logger.info(f"Received message: {message.content[:100]}...")
 
-            # Route to vLLM
-            response = await self.route_to_vllm(message)
+            # Route to appropriate backend based on active model
+            response = await self.route_to_model(message)
 
             # Send response
             response_data = response.model_dump_json()
@@ -143,6 +231,118 @@ class SupervisorService:
                 metadata={"error": True}
             )
             await msg.respond(error_response.model_dump_json().encode())
+
+    async def route_to_model(self, message: Message) -> Response:
+        """
+        Route message to appropriate backend based on active model.
+        
+        For local models: route to vLLM
+        For OpenRouter models: route to OpenRouter API
+        """
+        # Get or create conversation thread
+        thread_id = message.thread_id or "default"
+        if thread_id not in self.threads:
+            self.threads[thread_id] = []
+
+        # Get active model for this thread (or use default)
+        active_model_id = self.active_models.get(thread_id, self.model_name)
+        model = self.model_registry.get_model(active_model_id)
+
+        if not model:
+            logger.error(f"Active model not found: {active_model_id}")
+            # Fallback to default model
+            model = self.model_registry.get_model(self.model_name)
+            if not model:
+                raise RuntimeError("Default model not found")
+
+        logger.info(f"Routing to model: {model.id} (source: {model.source})")
+
+        # Route based on model source
+        if model.source == 'local':
+            # For local models, map the model registry name to vLLM model name
+            # The registry uses "nemotron3-nano-nvfp4" but vLLM uses "nemotron3-nano"
+            vllm_model_name = self._map_to_vllm_model_name(model.id)
+            
+            return await self.route_to_vllm(message, vllm_model_name)
+        elif model.source == 'openrouter':
+            return await self.route_to_openrouter(message, model)
+        else:
+            raise RuntimeError(f"Unknown model source: {model.source}")
+
+    async def route_to_openrouter(self, message: Message, model: Model) -> Response:
+        """
+        Route message to OpenRouter API.
+        
+        Retrieves relevant Procedural Memory and injects into context.
+        Tracks costs using the cost tracker.
+        """
+        # Get or create conversation thread
+        thread_id = message.thread_id or "default"
+        if thread_id not in self.threads:
+            self.threads[thread_id] = []
+
+        # Retrieve relevant Procedural Memory
+        procedural_memories = await self.retrieve_procedural_memory(
+            message.content,
+            limit=2
+        )
+
+        # Build system message with Procedural Memory context
+        system_content = ""
+        if procedural_memories:
+            system_content = "# Relevant Procedural Memory\n\n"
+            for mem in procedural_memories:
+                system_content += f"## {mem['id']} (domain: {mem['domain']})\n\n"
+                system_content += f"{mem['content']}\n\n"
+
+        # Add user message to thread
+        self.threads[thread_id].append({
+            "role": "user",
+            "content": message.content
+        })
+
+        # Build messages for OpenRouter
+        messages = []
+        if system_content:
+            messages.append({
+                "role": "system",
+                "content": system_content
+            })
+        messages.extend(self.threads[thread_id].copy())
+
+        # Call OpenRouter API
+        logger.info(f"Calling OpenRouter with model: {model.id}")
+        completion, usage_stats = self.openrouter_client.complete(
+            messages=messages,
+            model_id=model.id,
+            max_tokens=4096,
+            temperature=0.7
+        )
+
+        # Track costs
+        if self.cost_tracker:
+            session_id = thread_id  # Use thread_id as session_id
+            self.cost_tracker.add_usage(session_id, usage_stats)
+
+        # Add assistant response to thread
+        self.threads[thread_id].append({
+            "role": "assistant",
+            "content": completion
+        })
+
+        # Build response
+        response = Response(
+            content=completion,
+            thread_id=thread_id,
+            model=model.id,
+            metadata={
+                "tokens_used": usage_stats.total_tokens,
+                "cost_usd": usage_stats.cost_usd,
+                "trust_tier": model.trust_tier
+            }
+        )
+
+        return response
 
     async def get_embedding(self, text: str) -> List[float]:
         """
@@ -219,7 +419,7 @@ class SupervisorService:
             logger.error(f"Error retrieving Procedural Memory: {e}", exc_info=True)
             return []
 
-    async def route_to_vllm(self, message: Message) -> Response:
+    async def route_to_vllm(self, message: Message, model_name: Optional[str] = None) -> Response:
         """
         Route message to vLLM inference engine
 
@@ -267,13 +467,16 @@ class SupervisorService:
         # Get available tools for vLLM
         tools = self.tool_registry.get_tools_for_vllm()
 
+        # Use the provided model name or fall back to default
+        effective_model_name = model_name or self.model_name
+        
         # Call vLLM with tool support
         logger.info(
             f"Calling vLLM with {len(messages)} messages "
             f"and {len(tools)} tools"
         )
         completion = await self.vllm_client.chat.completions.create(
-            model=self.model_name,
+            model=effective_model_name,
             messages=messages,
             temperature=0.7,
             max_tokens=4096,
@@ -364,7 +567,7 @@ class SupervisorService:
         response = Response(
             content=assistant_message.content,
             thread_id=thread_id,
-            model=self.model_name,
+            model=effective_model_name,
             metadata={
                 "tokens_used": completion.usage.total_tokens if completion.usage else 0
             }
@@ -379,6 +582,10 @@ class SupervisorService:
         # Subscribe to supervisor request subject
         logger.info("Subscribing to supervisor.request subject")
         await self.nc.subscribe("supervisor.request", cb=self.handle_message)
+
+        # Subscribe to model switch subject
+        logger.info("Subscribing to supervisor.model_switch subject")
+        await self.nc.subscribe("supervisor.model_switch", cb=self.handle_model_switch)
 
         logger.info("Supervisor service running. Press Ctrl+C to exit.")
 
@@ -400,6 +607,8 @@ async def main():
     model_name = os.getenv("MODEL_NAME", "nemotron3-nano")
     qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
     embedding_url = os.getenv("EMBEDDING_URL", "http://g14:8080")
+    models_dir = os.getenv("MODELS_DIR", "~/babs-data/models")
+    cache_file = os.getenv("CACHE_FILE", "~/babs/config/model_registry.json")
 
     # Create and run supervisor
     supervisor = SupervisorService(
@@ -407,7 +616,9 @@ async def main():
         vllm_url=vllm_url,
         model_name=model_name,
         qdrant_url=qdrant_url,
-        embedding_url=embedding_url
+        embedding_url=embedding_url,
+        models_dir=models_dir,
+        cache_file=cache_file
     )
 
     await supervisor.run()
