@@ -52,24 +52,14 @@ fi
 echo "✓ Model weights found"
 echo ""
 
-# Build custom vLLM image if not exists
-echo "Building custom vLLM image for CUDA 13.1 compatibility..."
-if ! docker images | grep -q "vllm-cuda13-super"; then
-    cd ~/babs/docker
-    docker build -f Dockerfile.vllm-super -t vllm-cuda13-super .
-    echo "✓ Custom vLLM image built"
-else
-    echo "✓ Custom vLLM image already exists"
-fi
-
 # Stop current vLLM
 echo "Stopping current vLLM container..."
 docker stop vllm-babs || true
 docker rm vllm-babs || true
 
-# Start vLLM with Super model using custom image
+# Start vLLM with Super model using NVIDIA official container
 echo "Starting vLLM with Nemotron 3 Super 120B NVFP4..."
-echo "Using custom vLLM image built for CUDA 13.1"
+echo "Using NVIDIA official container: nvcr.io/nvidia/vllm:26.02-py3"
 echo ""
 
 docker run -d --name vllm-babs \
@@ -77,8 +67,8 @@ docker run -d --name vllm-babs \
   -e VLLM_FLASHINFER_MOE_BACKEND=throughput \
   -v ~/babs-data/models/nemotron3-super-nvfp4:/model \
   -v ~/babs-data/cache:/root/.cache \
-  -v ~/babs/scripts/super_v3_reasoning_parser.py:/opt/super_v3_reasoning_parser.py \
-  vllm-cuda13-super \
+  -v ~/babs/scripts:/scripts \
+  nvcr.io/nvidia/vllm:26.02-py3 \
   vllm serve /model \
   --served-model-name nemotron3-super \
   --dtype auto \
@@ -91,7 +81,7 @@ docker run -d --name vllm-babs \
   --host 0.0.0.0 --port 8000 \
   --enable-auto-tool-choice \
   --tool-call-parser qwen3_coder \
-  --reasoning-parser-plugin /opt/super_v3_reasoning_parser.py \
+  --reasoning-parser-plugin /scripts/super_v3_reasoning_parser.py \
   --reasoning-parser super_v3
 
 echo ""

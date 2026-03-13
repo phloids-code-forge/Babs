@@ -24,6 +24,12 @@ from pydantic import BaseModel
 import nats
 from nats.aio.client import Client as NATSClient
 
+# Model registry and OpenRouter integration
+import sys
+sys.path.insert(0, '/home/dave/babs')
+from src.supervisor.model_registry import ModelRegistry
+from src.supervisor.openrouter import OpenRouterClient, CostTracker
+
 
 # Configure logging
 logging.basicConfig(
@@ -53,21 +59,63 @@ class ServiceStatus(BaseModel):
     details: Optional[str] = None
 
 
+class ModelSelectRequest(BaseModel):
+    '''Request to switch active model'''
+    model_id: str
+
+
+class ModelDownloadRequest(BaseModel):
+    '''Request to download a model'''
+    model_id: str
+    quantization: Optional[str] = None
+    bandwidth_limit_mbps: int = 50
+
+
 # FastAPI app
 app = FastAPI(title='Babs Dashboard')
 
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Global NATS connection
 nc: Optional[NATSClient] = None
 
+# Global model registry and cost tracker
+model_registry: Optional[ModelRegistry] = None
+cost_tracker: Optional[CostTracker] = None
+active_model_id: str = "local/nemotron3-nano"  # Default to Nano
+
 
 @app.on_event('startup')
 async def startup_event():
-    '''Connect to NATS on startup'''
-    global nc
+    '''Connect to NATS and initialize model registry on startup'''
+    global nc, model_registry, cost_tracker
+
+    # Connect to NATS
     logger.info(f'Connecting to NATS at {NATS_URL}')
     nc = await nats.connect(NATS_URL)
     logger.info('Dashboard connected to NATS')
+
+    # Initialize model registry
+    logger.info('Initializing model registry')
+    models_dir = os.getenv('MODELS_DIR', '~/babs-data/models')
+    cache_file = os.getenv('CACHE_FILE', '~/babs/config/model_registry.json')
+    model_registry = ModelRegistry(models_dir=models_dir, cache_file=cache_file)
+
+    # Try to load from cache first
+    if model_registry.load_from_cache():
+        logger.info('Loaded model registry from cache')
+    else:
+        # Scan fresh if no cache
+        logger.info('Scanning models (no cache found)')
+        model_registry.list_all()
+        model_registry.save_to_cache()
+
+    # Initialize cost tracker
+    budget_limit = float(os.getenv('COST_BUDGET_LIMIT_THRESHOLD', '20.0'))
+    budget_warning = float(os.getenv('COST_BUDGET_WARNING_THRESHOLD', '5.0'))
+    cost_tracker = CostTracker(budget_limit=budget_limit, warning_threshold=budget_warning)
+    logger.info(f'Cost tracker initialized (limit: ${budget_limit}, warning: ${budget_warning})')
 
 
 @app.on_event('shutdown')
@@ -214,6 +262,131 @@ async def websocket_chat(websocket: WebSocket):
     except Exception as e:
         logger.error(f'WebSocket error: {e}', exc_info=True)
         await websocket.close()
+
+
+@app.get('/api/models/list')
+async def list_models(refresh: bool = False) -> Dict[str, Any]:
+    '''
+    Get all available models (local + OpenRouter)
+
+    Args:
+        refresh: Force refresh of OpenRouter catalog
+
+    Returns:
+        Dict with "local" and "openrouter" model lists
+    '''
+    if not model_registry:
+        raise HTTPException(status_code=503, detail='Model registry not initialized')
+
+    try:
+        models = model_registry.list_all(refresh_openrouter=refresh)
+
+        # Convert Model objects to dicts
+        return {
+            'local': [vars(m) for m in models['local']],
+            'openrouter': [vars(m) for m in models['openrouter']],
+            'active_model_id': active_model_id
+        }
+    except Exception as e:
+        logger.error(f'Error listing models: {e}', exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/api/model/select')
+async def select_model(request: ModelSelectRequest) -> Dict[str, Any]:
+    '''
+    Switch the active model
+
+    Publishes model switch request to NATS supervisor.model_switch
+    '''
+    global active_model_id
+
+    if not model_registry:
+        raise HTTPException(status_code=503, detail='Model registry not initialized')
+
+    if not nc or not nc.is_connected:
+        raise HTTPException(status_code=503, detail='NATS not connected')
+
+    # Verify model exists
+    model = model_registry.get_model(request.model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail=f'Model not found: {request.model_id}')
+
+    # Check if model can be loaded (memory constraints)
+    if model.source == 'local':
+        can_load = model_registry.can_load_model(request.model_id)
+        if not can_load['can_load']:
+            raise HTTPException(status_code=400, detail=can_load['reason'])
+
+    try:
+        # Publish model switch request to Supervisor
+        switch_message = {
+            'model_id': request.model_id,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+
+        await nc.publish(
+            'supervisor.model_switch',
+            json.dumps(switch_message).encode()
+        )
+
+        # Update active model (optimistic)
+        active_model_id = request.model_id
+
+        logger.info(f'Switched active model to: {request.model_id}')
+
+        # Determine restrictions based on trust tier
+        restrictions = []
+        if model.trust_tier >= 2:
+            restrictions.extend(['no_file_write', 'no_system_commands'])
+        if model.trust_tier >= 3:
+            restrictions.extend(['no_code_execution', 'no_procedural_memory_write'])
+
+        return {
+            'success': True,
+            'active_model': request.model_id,
+            'trust_tier': model.trust_tier,
+            'restrictions': restrictions,
+            'source': model.source
+        }
+
+    except Exception as e:
+        logger.error(f'Error switching model: {e}', exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/api/model/active')
+async def get_active_model() -> Dict[str, Any]:
+    '''Get currently active model'''
+    if not model_registry:
+        raise HTTPException(status_code=503, detail='Model registry not initialized')
+
+    model = model_registry.get_model(active_model_id)
+    if not model:
+        return {'active_model_id': active_model_id, 'details': None}
+
+    return {
+        'active_model_id': active_model_id,
+        'details': vars(model)
+    }
+
+
+@app.get('/api/costs/session/{session_id}')
+async def get_session_cost(session_id: str) -> Dict[str, Any]:
+    '''Get cost summary for a session'''
+    if not cost_tracker:
+        raise HTTPException(status_code=503, detail='Cost tracker not initialized')
+
+    return cost_tracker.get_session_cost(session_id)
+
+
+@app.get('/api/memory/summary')
+async def get_memory_summary() -> Dict[str, Any]:
+    '''Get memory usage summary'''
+    if not model_registry:
+        raise HTTPException(status_code=503, detail='Model registry not initialized')
+
+    return model_registry.get_memory_usage_summary()
 
 
 if __name__ == '__main__':

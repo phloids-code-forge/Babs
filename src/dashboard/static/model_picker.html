@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Picker - Babs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div x-data="modelPicker()" x-init="init()" class="min-h-screen p-6">
+        <!-- Header -->
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold mb-2">Model Picker</h1>
+            <p class="text-gray-400">Choose local or OpenRouter models. Switch models without restarting.</p>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="flex items-center">
+                    <i class="fas fa-microchip text-blue-400 text-2xl mr-3"></i>
+                    <div>
+                        <div class="text-sm text-gray-400">Memory</div>
+                        <div class="text-xl font-bold" x-text="memoryStats.free_gb + ' GB free'"></div>
+                        <div class="text-xs text-gray-500" x-text="memoryStats.loaded_models + ' loaded, ' + memoryStats.available_models + ' available'"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="flex items-center">
+                    <i class="fas fa-dollar-sign text-green-400 text-2xl mr-3"></i>
+                    <div>
+                        <div class="text-sm text-gray-400">Session Budget</div>
+                        <div class="text-xl font-bold" x-text="'$' + costStats.budget_remaining_usd.toFixed(2) + ' left'"></div>
+                        <div class="text-xs text-gray-500" x-text="'Limit: $' + costStats.budget_limit_usd"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="flex items-center">
+                    <i class="fas fa-bolt text-yellow-400 text-2xl mr-3"></i>
+                    <div>
+                        <div class="text-sm text-gray-400">Active Model</div>
+                        <div class="text-xl font-bold truncate" x-text="activeModelName"></div>
+                        <div class="text-xs text-gray-500" x-text="activeModelSource"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search and Filters -->
+        <div class="mb-6">
+            <div class="flex flex-wrap gap-4 mb-4">
+                <div class="flex-1 min-w-[200px]">
+                    <input
+                        type="text"
+                        x-model="searchQuery"
+                        @input="filterModels()"
+                        placeholder="Search models..."
+                        class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                    >
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        @click="toggleFilter('local')"
+                        :class="{'bg-blue-600': filters.local, 'bg-gray-700': !filters.local}"
+                        class="px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    >
+                        <i class="fas fa-server mr-2"></i>Local
+                    </button>
+                    <button
+                        @click="toggleFilter('openrouter')"
+                        :class="{'bg-blue-600': filters.openrouter, 'bg-gray-700': !filters.openrouter}"
+                        class="px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    >
+                        <i class="fas fa-cloud mr-2"></i>OpenRouter
+                    </button>
+                    <button
+                        @click="refreshModels()"
+                        class="px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition"
+                    >
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Models Table -->
+        <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-900">
+                    <tr>
+                        <th class="py-3 px-4 text-left">Name</th>
+                        <th class="py-3 px-4 text-left">Source</th>
+                        <th class="py-3 px-4 text-left">Size</th>
+                        <th class="py-3 px-4 text-left">Cost</th>
+                        <th class="py-3 px-4 text-left">Trust</th>
+                        <th class="py-3 px-4 text-left">Status</th>
+                        <th class="py-3 px-4 text-left">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="model in filteredModels" :key="model.id">
+                        <tr class="border-t border-gray-700 hover:bg-gray-750">
+                            <td class="py-3 px-4">
+                                <div class="font-medium" x-text="model.name"></div>
+                                <div class="text-xs text-gray-400" x-text="model.context_window.toLocaleString() + ' context'"></div>
+                            </td>
+                            <td class="py-3 px-4">
+                                <span
+                                    class="px-2 py-1 rounded text-xs font-medium"
+                                    :class="{'bg-green-900 text-green-200': model.source === 'local', 'bg-blue-900 text-blue-200': model.source === 'openrouter'}"
+                                    x-text="model.source === 'local' ? 'Local' : 'OpenRouter'"
+                                ></span>
+                            </td>
+                            <td class="py-3 px-4">
+                                <div x-text="model.size_gb ? model.size_gb + ' GB' : 'N/A'"></div>
+                                <div
+                                    x-show="model.memory_footprint_gb"
+                                    class="text-xs text-gray-400"
+                                    x-text="'RAM: ' + model.memory_footprint_gb + ' GB'"
+                                ></div>
+                            </td>
+                            <td class="py-3 px-4">
+                                <div x-text="getCostDisplay(model)"></div>
+                            </td>
+                            <td class="py-3 px-4">
+                                <span
+                                    class="px-2 py-1 rounded text-xs font-medium"
+                                    :class="{
+                                        'bg-green-900 text-green-200': model.trust_tier === 0,
+                                        'bg-yellow-900 text-yellow-200': model.trust_tier === 1,
+                                        'bg-red-900 text-red-200': model.trust_tier >= 2
+                                    }"
+                                    x-text="getTrustTierName(model.trust_tier)"
+                                ></span>
+                            </td>
+                            <td class="py-3 px-4">
+                                <span
+                                    class="px-2 py-1 rounded text-xs font-medium"
+                                    :class="{
+                                        'bg-green-900 text-green-200': model.status === 'loaded',
+                                        'bg-blue-900 text-blue-200': model.status === 'available',
+                                        'bg-yellow-900 text-yellow-200': model.status === 'downloading',
+                                        'bg-red-900 text-red-200': model.status === 'error'
+                                    }"
+                                    x-text="model.status"
+                                ></span>
+                            </td>
+                            <td class="py-3 px-4">
+                                <div class="flex space-x-2">
+                                    <button
+                                        @click="selectModel(model.id)"
+                                        :class="{
+                                            'bg-green-600 hover:bg-green-700': !isActiveModel(model.id),
+                                            'bg-gray-600 cursor-default': isActiveModel(model.id)
+                                        }"
+                                        :disabled="isActiveModel(model.id) || model.status === 'downloading'"
+                                        class="px-3 py-1 rounded text-sm font-medium disabled:opacity-50"
+                                    >
+                                        <template x-if="isActiveModel(model.id)">
+                                            <span>Active</span>
+                                        </template>
+                                        <template x-if="!isActiveModel(model.id)">
+                                            <span>Select</span>
+                                        </template>
+                                    </button>
+                                    <button
+                                        x-show="model.source === 'openrouter' && !isLocalAvailable(model.id)"
+                                        @click="downloadModel(model.id)"
+                                        class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
+                                    >
+                                        <i class="fas fa-download mr-1"></i>Download
+                                    </button>
+                                    <button
+                                        x-show="model.source === 'local' && model.status !== 'loaded'"
+                                        @click="deleteModel(model.id)"
+                                        class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium"
+                                    >
+                                        <i class="fas fa-trash mr-1"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+
+            <!-- Loading indicator -->
+            <div x-show="loading" class="py-8 text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                <div class="mt-2 text-gray-400">Loading models...</div>
+            </div>
+
+            <!-- No results -->
+            <div x-show="!loading && filteredModels.length === 0" class="py-8 text-center">
+                <div class="text-gray-400">No models found. Try changing your filters.</div>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="fixed bottom-4 right-4 space-y-2 max-w-md">
+            <template x-for="notification in notifications" :key="notification.id">
+                <div
+                    class="bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-lg transform transition-all duration-300"
+                    :class="{
+                        'translate-y-0 opacity-100': notification.visible,
+                        'translate-y-4 opacity-0': !notification.visible
+                    }"
+                    @mouseenter="notification.timeout && clearTimeout(notification.timeout)"
+                    @mouseleave="dismissNotification(notification.id, 5000)"
+                >
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="font-medium mb-1" x-text="notification.title"></div>
+                            <div class="text-sm text-gray-300" x-text="notification.message"></div>
+                        </div>
+                        <button @click="dismissNotification(notification.id)" class="ml-2 text-gray-400 hover:text-gray-200">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <script>
+        function modelPicker() {
+            return {
+                models: [],
+                filteredModels: [],
+                activeModelId: '',
+                activeModelName: 'Unknown',
+                activeModelSource: '',
+                searchQuery: '',
+                filters: {
+                    local: true,
+                    openrouter: true
+                },
+                loading: false,
+                memoryStats: {
+                    free_gb: 0,
+                    loaded_models: 0,
+                    available_models: 0
+                },
+                costStats: {
+                    budget_limit_usd: 20.0,
+                    budget_remaining_usd: 20.0
+                },
+                notifications: [],
+
+                async init() {
+                    await this.loadModels();
+                    await this.loadMemoryStats();
+                    await this.loadCostStats();
+                },
+
+                async loadModels() {
+                    this.loading = true;
+                    try {
+                        const response = await fetch('/api/models/list');
+                        const data = await response.json();
+                        this.models = [...data.local, ...data.openrouter];
+                        this.activeModelId = data.active_model_id;
+                        this.filterModels();
+                        
+                        // Find active model details
+                        const activeModel = this.models.find(m => m.id === this.activeModelId);
+                        if (activeModel) {
+                            this.activeModelName = activeModel.name;
+                            this.activeModelSource = activeModel.source === 'local' ? 'Local' : 'OpenRouter';
+                        }
+                    } catch (error) {
+                        this.showNotification('Error', 'Failed to load models: ' + error.message, 'error');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async loadMemoryStats() {
+                    try {
+                        const response = await fetch('/api/memory/summary');
+                        this.memoryStats = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load memory stats:', error);
+                    }
+                },
+
+                async loadCostStats() {
+                    try {
+                        // TODO: Replace with actual session ID
+                        const response = await fetch('/api/costs/session/current');
+                        const data = await response.json();
+                        this.costStats = {
+                            budget_limit_usd: data.budget_limit_usd,
+                            budget_remaining_usd: data.budget_remaining_usd
+                        };
+                    } catch (error) {
+                        console.error('Failed to load cost stats:', error);
+                    }
+                },
+
+                filterModels() {
+                    const query = this.searchQuery.toLowerCase();
+                    this.filteredModels = this.models.filter(model => {
+                        // Apply source filter
+                        if (!this.filters[model.source]) return false;
+                        
+                        // Apply search filter
+                        if (query) {
+                            return model.name.toLowerCase().includes(query) ||
+                                   model.id.toLowerCase().includes(query);
+                        }
+                        
+                        return true;
+                    });
+                },
+
+                toggleFilter(source) {
+                    this.filters[source] = !this.filters[source];
+                    this.filterModels();
+                },
+
+                isActiveModel(modelId) {
+                    return modelId === this.activeModelId;
+                },
+
+                isLocalAvailable(modelId) {
+                    const baseId = modelId.replace('openrouter/', '');
+                    return this.models.some(m => 
+                        m.source === 'local' && m.id.includes(baseId)
+                    );
+                },
+
+                getCostDisplay(model) {
+                    if (model.cost_per_1m_input === null) return 'Free';
+                    const input = model.cost_per_1m_input?.toFixed(2) || '0.00';
+                    const output = model.cost_per_1m_output?.toFixed(2) || '0.00';
+                    return `$${input} / $${output}`;
+                },
+
+                getTrustTierName(tier) {
+                    const names = ['Full', 'Limited', 'Restricted', 'Untrusted'];
+                    return names[Math.min(tier, 3)];
+                },
+
+                async selectModel(modelId) {
+                    try {
+                        const response = await fetch('/api/model/select', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model_id: modelId })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            this.activeModelId = data.active_model;
+                            await this.loadModels();
+                            this.showNotification(
+                                'Model Switched',
+                                `Selected ${modelId} (Trust Tier: ${data.trust_tier})`,
+                                'success'
+                            );
+                        } else {
+                            throw new Error(data.error || 'Failed to switch model');
+                        }
+                    } catch (error) {
+                        this.showNotification('Error', error.message, 'error');
+                    }
+                },
+
+                async downloadModel(modelId) {
+                    this.showNotification('Download Started', `Starting download for ${modelId}`, 'info');
+                    // TODO: Implement download endpoint
+                },
+
+                async deleteModel(modelId) {
+                    if (!confirm('Are you sure you want to delete this model?')) return;
+                    // TODO: Implement delete endpoint
+                    this.showNotification('Deleted', `Model ${modelId} deleted`, 'info');
+                },
+
+                async refreshModels() {
+                    this.showNotification('Refreshing', 'Fetching latest model list...', 'info');
+                    await this.loadModels();
+                    this.showNotification('Refreshed', 'Model list updated', 'success');
+                },
+
+                showNotification(title, message, type = 'info') {
+                    const id = Date.now();
+                    const notification = {
+                        id,
+                        title,
+                        message,
+                        type,
+                        visible: true,
+                        timeout: null
+                    };
+                    
+                    notification.timeout = setTimeout(() => {
+                        this.dismissNotification(id);
+                    }, 5000);
+                    
+                    this.notifications.push(notification);
+                },
+
+                dismissNotification(id, timeout = null) {
+                    const notification = this.notifications.find(n => n.id === id);
+                    if (notification) {
+                        notification.visible = false;
+                        setTimeout(() => {
+                            this.notifications = this.notifications.filter(n => n.id !== id);
+                        }, 300);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

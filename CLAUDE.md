@@ -10,7 +10,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - **Auxiliary node (G14):** ASUS ROG Zephyrus G14, headless Ubuntu 24.04 LTS Server, RTX 3060 Mobile 6GB, 40GB RAM, 1TB SSD. At `ssh g14` (Tailscale 100.101.118.78). OS and networking complete, service deployment pending.
 - **Dev machine (PX13):** Dave's workstation. Windows. Connects via VS Code Remote SSH over Tailscale.
 
-## Current State (2026-03-13)
+## Current State (2026-03-13 Updated 14:40 CDT)
 
 ### What's Running
 
@@ -19,15 +19,31 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 | vllm-babs | avarok/vllm-dgx-spark:v11 | 8000 | Running stable. Nemotron 3 Nano 30B-A3B NVFP4. 65+ tok/s. |
 | nats-babs | nats:latest | 4222, 8222, 6222 | Running. JetStream enabled. Data at ~/babs-data/nats. |
 | babs-supervisor | docker-supervisor (custom) | -- | Running. Routes NATS -> vLLM, manages tools, retrieves from Procedural Memory. |
-| qdrant-babs | qdrant/qdrant:latest | 6333, 6334 | Running. Procedural Memory collection (5 seed entries, need re-embedding). |
+| qdrant-babs | qdrant/qdrant:latest | 6333, 6334 | Running. Procedural Memory collection (5 seed entries, re-embedded). |
 | babs-dashboard | docker-dashboard (custom) | 3000 | Running. Primary interface. http://100.109.213.22:3000 |
-| open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Running (to be stopped, replaced by dashboard). |
+| open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Stopped (replaced by dashboard). |
 
-### What Happened
+### Super Model Investigation (2026-03-13)
 
-- Nemotron 3 Super 120B-A12B NVFP4 was the intended Supervisor model. It loads and serves at 14.8 tok/s but crashes with `cudaErrorIllegalInstruction` on SM121 during extended generation. Tried `--enforce-eager` but it did not fix the crash. The model launched 2026-03-11; SM121 kernel fixes are expected from the community.
-- Fell back to Nemotron 3 Nano 30B-A3B NVFP4. Community-confirmed stable on the Spark. Working with `--reasoning-parser deepseek_r1`. Thinking must be enabled (`enable_thinking: true`); disabling it causes content to be null. **This is the day-one Supervisor model.**
-- Super weights are still on disk at `~/babs-data/models/nemotron3-super-nvfp4/` (75GB). Do not delete.
+**Finding:** Nemotron 3 Super 120B-A12B NVFP4 cannot run on current vLLM versions.
+
+**Root cause:** The model uses `MIXED_PRECISION` quantization (FP8 for attention, NVFP4 for MoE experts). vLLM v26.02 (NVIDIA official container) only supports homogeneous quantization: `FP8`, `FP8_PER_CHANNEL_PER_TOKEN`, `FP8_PB_WO`, or `NVFP4`. Mixed precision is rejected during model config validation.
+
+**Driver status:** Already running 590.48.01 (latest stable). Not a driver issue.
+
+**Attempted fixes:**
+- NVIDIA official container (nvcr.io/nvidia/vllm:26.02-py3): Fails with quant_method validation error
+- Removing `--quantization` flag: Still fails (reads MIXED_PRECISION from hf_quant_config.json)
+
+**Options going forward:**
+1. Download FP8-only variant (nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8, ~100GB)
+2. Wait for vLLM to support MIXED_PRECISION quantization
+3. Try community vLLM builds with patches (avarok/vllm-dgx-spark with Super)
+4. Stay on Nano (30B, stable, 65+ tok/s)
+
+**Decision:** Deferred Super upgrade. Focus on Phase 7.5 (model picker with OpenRouter) to enable trying larger models without local download commitment.
+
+**Super weights:** Still at `~/babs-data/models/nemotron3-super-nvfp4/` (75GB). Do not delete until FP8 variant tested or vLLM adds MIXED_PRECISION support.
 
 ### Dev Environment (2026-03-12)
 
@@ -67,7 +83,30 @@ Will revisit when a fix lands. Nano is the active Supervisor model and is runnin
 **Phase 7 Complete (2026-03-13).**
 Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + Tools -> vLLM.
 
-**Next: Phase 8** (Workers and code execution) or cleanup (stop Open WebUI, re-embed Procedural Memory seeds).
+**Phase 7.5 - Model Picker Implementation (2026-03-13)**
+- ✅ **OpenRouter Integration:** src/supervisor/openrouter.py - Connects to OpenRouter API, fetches 344 models, cost tracking with $5 warning/$20 limit
+- ✅ **Model Registry:** src/supervisor/model_registry.py - Scans local models (~/babs-data/models/), merges with OpenRouter catalog, memory footprint calculation
+- ✅ **Dashboard APIs:** src/dashboard/dashboard.py - /api/models/list, /api/model/select, /api/costs/session/{id}, /api/memory/summary
+- ✅ **Model Picker UI:** src/dashboard/static/model_picker.html - Alpine.js + Tailwind interface with search, filtering, notifications
+- ✅ **Live URLs:**
+  - Dashboard: http://100.109.213.22:3000
+  - Model Picker: http://100.109.213.22:3000/static/model_picker.html
+  - API: http://100.109.213.22:3000/api/models/list
+
+**Model picker status:** UI functional, selection publishes to NATS, awaiting Supervisor model switching implementation.
+
+**Phase 7.5 - Model Picker & OpenRouter Integration (IN PROGRESS):**
+1. ✅ OpenRouter API integration (model discovery, routing, cost tracking)
+2. ✅ Model picker UI in dashboard (local + OpenRouter models, filtering, search)
+3. ⏸️ Model download agent (background NATS worker, HuggingFace CLI, progress reporting)
+4. ⏸️ Smart download management (memory headroom check, bandwidth throttling, pause/resume)
+5. ⏸️ Model switching (hot-swap without restart, graceful handoff)
+6. ✅ Cost tracking & budget alerts (session costs, comparison to local)
+7. ⏸️ Trust Tier integration (enforce local-only for sensitive operations)
+
+**Rationale:** Enable trying large models via OpenRouter before committing to local download. Solves Super model problem (try via API, download FP8 variant only if satisfied). Sets up download agent pattern for Phase 8 Workers.
+
+**Next: Complete Phase 7.5, then Phase 8** (Workers and code execution).
 
 **Latest handoff:** HANDOFF-2026-03-13-CURRENT.md
 

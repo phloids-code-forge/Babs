@@ -1,0 +1,39 @@
+{
+  "local": [
+    {
+      "id": "local/nemotron3-super-nvfp4",
+      "name": "nemotron3-super-nvfp4",
+      "source": "local",
+      "size_gb": 74.8,
+      "context_window": 262144,
+      "capabilities": [
+        "reasoning",
+        "coding"
+      ],
+      "quantization": "modelopt",
+      "memory_footprint_gb": 97.3,
+      "cost_per_1m_input": null,
+      "cost_per_1m_output": null,
+      "status": "available",
+      "trust_tier": 0
+    },
+    {
+      "id": "local/nemotron3-nano-nvfp4",
+      "name": "nemotron3-nano-nvfp4",
+      "source": "local",
+      "size_gb": 17.5,
+      "context_window": 262144,
+      "capabilities": [
+        "reasoning",
+        "coding"
+      ],
+      "quantization": "nvfp4",
+      "memory_footprint_gb": 26.3,
+      "cost_per_1m_input": null,
+      "cost_per_1m_output": null,
+      "status": "loaded",
+      "trust_tier": 0
+    }
+  ],
+  "openrouter": []
+}

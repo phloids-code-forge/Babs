@@ -1,15 +1,23 @@
 services:
   dashboard:
     build:
-      context: ../src/dashboard
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
     container_name: babs-dashboard
     restart: always
     ports:
       - "3000:3000"
+    volumes:
+      - /home/dave/babs-data:/home/dave/babs-data
+      - /home/dave/babs/config:/home/dave/babs/config
     environment:
       - NATS_URL=nats://nats-babs:4222
       - USER_ID=phloid
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-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}
+      - COST_BUDGET_LIMIT_THRESHOLD=20.0
+      - COST_BUDGET_WARNING_THRESHOLD=5.0
+      - MODELS_DIR=/home/dave/babs-data/models
+      - CACHE_FILE=/home/dave/babs/config/model_registry.json
     networks:
       - babs-net
     depends_on:
