@@ -1,16 +1,22 @@
 services:
   supervisor:
     build:
-      context: ../src/supervisor
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.supervisor
     container_name: babs-supervisor
     restart: always
     environment:
       - NATS_URL=nats://nats-babs:4222
       - VLLM_URL=http://172.17.0.1:8000/v1
-      - MODEL_NAME=nemotron3-nano
+      - MODEL_NAME=local/nemotron3-nano-nvfp4
       - QDRANT_URL=http://172.17.0.1:6333
       - EMBEDDING_URL=http://g14:8080
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-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}
+      - MODELS_DIR=/home/dave/babs-data/models
+      - CACHE_FILE=/home/dave/babs/config/model_registry.json
+    volumes:
+      - /home/dave/babs-data:/home/dave/babs-data
+      - /home/dave/babs/config:/home/dave/babs/config
     networks:
       - babs-net
     depends_on:

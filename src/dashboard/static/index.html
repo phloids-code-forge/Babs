@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,122 +8,173 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Babs-themed colors */
+        .babs-bg-primary {
+            background-color: #1a1a2e;
+        }
+
+        .babs-bg-secondary {
+            background-color: #16213e;
+        }
+
+        .babs-bg-accent {
+            background-color: #0f3460;
+        }
+
+        .babs-text-accent {
+            color: #e94560;
+        }
+
+        .babs-border-accent {
+            border-color: #e94560;
+        }
+    </style>
 </head>
+
 <body class="bg-gray-900 text-gray-100">
+    <!-- Top Navigation Bar -->
+    <nav class="babs-bg-primary border-b babs-border-accent p-4 flex justify-between items-center">
+        <div class="flex space-x-4 items-center">
+            <a href="/" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-home"></i>
+                <span>🏠 Home</span>
+            </a>
+            <a href="/static/model_picker.html" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-cog"></i>
+                <span>🎛️ Model Picker</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-brain"></i>
+                <span>📊 Memory Dashboard</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-cogs"></i>
+                <span>⚙️ Settings</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-question-circle"></i>
+                <span>❓ Help</span>
+            </a>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="text-sm text-gray-300">
+                Active: <span class="font-bold babs-text-accent" id="active-model">Nemotron 3 Nano</span>
+            </div>
+            <div class="text-sm text-gray-400">
+                <i class="fas fa-user mr-1"></i>phloid
+            </div>
+        </div>
+    </nav>
+
     <div x-data="dashboard()" x-init="init()" class="min-h-screen">
-        <!-- Header -->
-        <header class="bg-gray-800 border-b border-gray-700">
-            <div class="container mx-auto px-4 py-4">
-                <div class="flex items-center justify-between">
-                    <h1 class="text-2xl font-bold">Babs</h1>
-                    <div class="flex items-center space-x-4">
-                        <span class="text-sm text-gray-400">phloid</span>
-                        <!-- Add Model Picker Tab Button -->
-                        <a
-                            href="/static/model_picker.html"
-                            target="_blank"
-                            class="px-3 py-1 bg-purple-700 hover:bg-purple-600 rounded text-sm transition"
-                        >
-                            <i class="fas fa-cog mr-1"></i>Model Picker
-                        </a>
-                        <button
-                            @click="showServices = !showServices"
-                            class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-sm"
-                        >
-                            <span x-show="!showServices">Show Services</span>
-                            <span x-show="showServices">Hide Services</span>
-                        </button>
+        <!-- Main Workspace -->
+        <div class="container mx-auto px-4 py-6 max-w-7xl">
+            <!-- Split Layout -->
+            <div class="flex flex-col lg:flex-row gap-6" style="height: calc(100vh - 180px);">
+                <!-- Left Panel (70%): Babs Interaction -->
+                <div class="lg:w-7/12 flex flex-col">
+                    <!-- Chat Interface -->
+                    <div class="babs-bg-secondary rounded-lg border border-gray-700 flex flex-col flex-1">
+                        <!-- Messages -->
+                        <div class="flex-1 overflow-y-auto p-4 space-y-4" x-ref="messagesContainer">
+                            <template x-for="(msg, index) in messages" :key="index">
+                                <div class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+                                    <div class="max-w-3xl rounded-lg px-4 py-3" :class="msg.role === 'user'
+                                            ? 'bg-blue-900 text-blue-100'
+                                            : 'bg-gray-700 text-gray-100'">
+                                        <div class="text-xs font-semibold mb-1 opacity-75"
+                                            x-text="msg.role === 'user' ? 'You' : 'Babs'"></div>
+                                        <div class="whitespace-pre-wrap" x-text="msg.content"></div>
+                                        <div x-show="msg.model" class="text-xs text-gray-400 mt-2"
+                                            x-text="'Model: ' + msg.model"></div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Loading indicator -->
+                            <div x-show="loading" class="flex justify-start">
+                                <div class="bg-gray-700 rounded-lg px-4 py-3">
+                                    <div class="text-xs font-semibold mb-1 opacity-75">Babs</div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="animate-pulse">Thinking...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Input -->
+                        <div class="border-t border-gray-700 p-4">
+                            <!-- Show selected files -->
+                            <div x-show="selectedFiles.length > 0" class="flex flex-wrap gap-2 mb-2">
+                                <template x-for="(file, index) in selectedFiles" :key="index">
+                                    <div class="flex items-center space-x-2 bg-gray-800 rounded px-2 py-1 text-sm border border-gray-600">
+                                        <i class="fas fa-file text-gray-400"></i>
+                                        <span class="truncate max-w-[150px]" x-text="file.name"></span>
+                                        <button type="button" @click="removeFile(index)" class="text-gray-400 hover:text-red-400">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                            <form @submit.prevent="sendMessage()" class="flex space-x-2">
+                                <button type="button" @click="$refs.fileInput.click()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-gray-300 transition-colors">
+                                    <i class="fas fa-paperclip"></i>
+                                </button>
+                                <input type="file" x-ref="fileInput" @change="handleFileSelect" multiple class="hidden">
+                                <input type="text" x-model="userInput" :disabled="loading" placeholder="Message Babs..."
+                                    class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-50">
+                                <button type="submit" :disabled="loading || (!userInput.trim() && selectedFiles.length === 0)"
+                                    class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Send
+                                </button>
+                            </form>
+                            <div class="mt-2 text-xs text-gray-500">
+                                Thread ID: <span x-text="threadId"></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </header>
 
-        <!-- Main Content -->
-        <div class="container mx-auto px-4 py-6 max-w-6xl">
-            <!-- Service Status Cards (collapsible) -->
-            <div x-show="showServices" x-transition class="mb-6">
-                <h2 class="text-lg font-semibold mb-3">Services</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <template x-for="service in services" :key="service.name">
-                        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                            <div class="flex items-center justify-between mb-2">
-                                <h3 class="font-semibold text-sm" x-text="service.name"></h3>
-                                <span
-                                    class="px-2 py-1 rounded text-xs font-medium"
-                                    :class="{
-                                        'bg-green-900 text-green-200': service.status === 'running',
-                                        'bg-red-900 text-red-200': service.status === 'stopped',
-                                        'bg-gray-700 text-gray-300': service.status === 'unknown'
-                                    }"
-                                    x-text="service.status"
-                                ></span>
-                            </div>
-                            <p class="text-xs text-gray-400" x-text="service.details"></p>
-                        </div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- Chat Interface -->
-            <div class="bg-gray-800 rounded-lg border border-gray-700 flex flex-col" style="height: calc(100vh - 250px);">
-                <!-- Messages -->
-                <div
-                    class="flex-1 overflow-y-auto p-4 space-y-4"
-                    x-ref="messagesContainer"
-                >
-                    <template x-for="(msg, index) in messages" :key="index">
-                        <div
-                            class="flex"
-                            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-                        >
-                            <div
-                                class="max-w-3xl rounded-lg px-4 py-3"
-                                :class="msg.role === 'user'
-                                    ? 'bg-blue-900 text-blue-100'
-                                    : 'bg-gray-700 text-gray-100'"
-                            >
-                                <div class="text-xs font-semibold mb-1 opacity-75" x-text="msg.role === 'user' ? 'You' : 'Babs'"></div>
-                                <div class="whitespace-pre-wrap" x-text="msg.content"></div>
-                                <div
-                                    x-show="msg.model"
-                                    class="text-xs text-gray-400 mt-2"
-                                    x-text="'Model: ' + msg.model"
-                                ></div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Loading indicator -->
-                    <div x-show="loading" class="flex justify-start">
-                        <div class="bg-gray-700 rounded-lg px-4 py-3">
-                            <div class="text-xs font-semibold mb-1 opacity-75">Babs</div>
+                <!-- Right Panel (30%): Context/Artifacts -->
+                <div class="lg:w-5/12 flex flex-col space-y-6">
+                    <!-- Thinking Panel -->
+                    <div class="babs-bg-secondary rounded-lg border border-gray-700">
+                        <div class="thinking-header flex justify-between items-center p-4 border-b border-gray-700">
                             <div class="flex items-center space-x-2">
-                                <div class="animate-pulse">Thinking...</div>
+                                <i class="fas fa-brain babs-text-accent"></i>
+                                <span class="font-semibold">🤖 Babs' Thinking Process</span>
+                            </div>
+                            <button class="text-sm text-gray-400 hover:text-gray-200" onclick="toggleThinking()">
+                                <i class="fas fa-chevron-down"></i>
+                            </button>
+                        </div>
+                        <div class="thinking-stream p-4 space-y-2 max-h-80 overflow-y-auto">
+                            <div class="thinking-item text-sm text-gray-300" data-type="welcome">
+                                <div class="flex items-start">
+                                    <span class="text-green-400 mr-2">💭</span>
+                                    <span>Welcome! Babs will show her thinking process here in real-time.</span>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">[System ready]</div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Input -->
-                <div class="border-t border-gray-700 p-4">
-                    <form @submit.prevent="sendMessage()" class="flex space-x-2">
-                        <input
-                            type="text"
-                            x-model="userInput"
-                            :disabled="loading"
-                            placeholder="Message Babs..."
-                            class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                        >
-                        <button
-                            type="submit"
-                            :disabled="loading || !userInput.trim()"
-                            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Send
-                        </button>
-                    </form>
-                    <div class="mt-2 text-xs text-gray-500">
-                        Thread ID: <span x-text="threadId"></span>
+                    <!-- Artifacts Gallery -->
+                    <div class="babs-bg-secondary rounded-lg border border-gray-700 flex-1">
+                        <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                            <div class="flex items-center space-x-2">
+                                <i class="fas fa-images babs-text-accent"></i>
+                                <span class="font-semibold">📁 Artifacts</span>
+                            </div>
+                            <span class="text-xs text-gray-400">Visualizations, Code, Documents</span>
+                        </div>
+                        <div class="p-4">
+                            <div class="text-center text-gray-500 text-sm py-8">
+                                <i class="fas fa-folder-open text-2xl mb-2"></i>
+                                <div>Artifacts will appear here when generated</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -138,11 +190,110 @@
                 services: [],
                 showServices: true,
                 threadId: generateUUID(),
+                selectedFiles: [],
+
+                handleFileSelect(event) {
+                    const objectFiles = Array.from(event.target.files);
+                    this.selectedFiles = [...this.selectedFiles, ...objectFiles];
+                    event.target.value = '';
+                },
+
+                removeFile(index) {
+                    this.selectedFiles.splice(index, 1);
+                },
 
                 async init() {
                     await this.loadServices();
+                    // Load active model
+                    await this.loadActiveModel();
                     // Refresh services every 30 seconds
                     setInterval(() => this.loadServices(), 30000);
+                    
+                    this.initThinkingSocket();
+                    this.initArtifactsSocket();
+                },
+
+                initThinkingSocket() {
+                    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${wsProtocol}//${window.location.host}/ws/thinking`;
+                    this.thinkingSocket = new WebSocket(wsUrl);
+                    
+                    this.thinkingSocket.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.addThinkingItem(data.message, data.event_type);
+                        } catch (e) {
+                            console.error('Error parsing thinking event', e);
+                        }
+                    };
+                    
+                    this.thinkingSocket.onclose = () => {
+                        setTimeout(() => this.initThinkingSocket(), 5000);
+                    };
+                },
+                
+                initArtifactsSocket() {
+                    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${wsProtocol}//${window.location.host}/ws/artifacts`;
+                    this.artifactsSocket = new WebSocket(wsUrl);
+                    
+                    this.artifactsSocket.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            this.addArtifactItem(data);
+                        } catch (e) {
+                            console.error('Error parsing artifact event', e);
+                        }
+                    };
+                    
+                    this.artifactsSocket.onclose = () => {
+                        setTimeout(() => this.initArtifactsSocket(), 5000);
+                    };
+                },
+                
+                addThinkingItem(message, type = 'info') {
+                    const panel = document.querySelector('.thinking-stream');
+                    // Add item to panel
+                    const item = document.createElement('div');
+                    item.className = 'thinking-item text-sm text-gray-300';
+                    const icons = {
+                        'info': '💭',
+                        'tool': '🔧',
+                        'memory': '🧠',
+                        'error': '❌'
+                    };
+                    const icon = icons[type] || '💭';
+                    
+                    item.innerHTML = `
+                        <div class="flex items-start">
+                            <span class="mr-2">${icon}</span>
+                            <span>${message}</span>
+                        </div>
+                    `;
+                    panel.appendChild(item);
+                    
+                    // Auto-scroll logic if visible
+                    if (panel.style.maxHeight !== '0px') {
+                        panel.scrollTop = panel.scrollHeight;
+                    }
+                },
+                
+                addArtifactItem(artifact) {
+                    const panel = document.querySelector('.babs-bg-secondary.flex-1 .p-4');
+                    // Remove placeholder if present
+                    const placeholder = panel.querySelector('.text-center');
+                    if (placeholder) {
+                        placeholder.remove();
+                    }
+                    
+                    const item = document.createElement('div');
+                    item.className = 'bg-gray-800 rounded p-3 mb-3 border border-gray-700';
+                    item.innerHTML = `
+                        <div class="font-semibold text-sm mb-1">${artifact.title}</div>
+                        <div class="text-xs text-gray-400 mb-2">${artifact.type}</div>
+                        <div class="bg-gray-900 rounded p-2 text-xs overflow-x-auto whitespace-pre-wrap">${artifact.content}</div>
+                    `;
+                    panel.appendChild(item);
                 },
 
                 async loadServices() {
@@ -154,30 +305,72 @@
                     }
                 },
 
+                async loadActiveModel() {
+                    try {
+                        const response = await fetch('/api/model/active');
+                        const data = await response.json();
+                        if (data.details) {
+                            document.getElementById('active-model').textContent = data.details.name;
+                        }
+                    } catch (error) {
+                        console.error('Failed to load active model:', error);
+                    }
+                },
+
                 async sendMessage() {
-                    if (!this.userInput.trim() || this.loading) return;
+                    if ((!this.userInput.trim() && this.selectedFiles.length === 0) || this.loading) return;
 
                     const userMessage = this.userInput.trim();
                     this.userInput = '';
+                    const filesToSend = [...this.selectedFiles];
+                    this.selectedFiles = [];
 
                     // Add user message to chat
+                    let msgContent = userMessage;
+                    if (filesToSend.length > 0) {
+                        const fileNames = filesToSend.map(f => f.name).join(', ');
+                        msgContent += msgContent ? `\n[Attached: ${fileNames}]` : `[Attached: ${fileNames}]`;
+                    }
+
                     this.messages.push({
                         role: 'user',
-                        content: userMessage
+                        content: msgContent
                     });
 
                     this.loading = true;
                     this.scrollToBottom();
 
                     try {
+                        let uploadedFilePaths = [];
+                        
+                        if (filesToSend.length > 0) {
+                            const formData = new FormData();
+                            filesToSend.forEach(file => {
+                                formData.append('files', file);
+                            });
+                            
+                            const uploadResponse = await fetch('/api/upload', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            if (!uploadResponse.ok) {
+                                throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+                            }
+                            
+                            const uploadData = await uploadResponse.json();
+                            uploadedFilePaths = uploadData.paths;
+                        }
+
                         const response = await fetch('/api/chat', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
-                                content: userMessage,
-                                thread_id: this.threadId
+                                content: userMessage || '[Files uploaded]',
+                                thread_id: this.threadId,
+                                files: uploadedFilePaths
                             })
                         });
 
@@ -219,12 +412,35 @@
         }
 
         function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
                 const r = Math.random() * 16 | 0;
                 const v = c === 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             });
         }
+
+        // Thinking panel toggle
+        function toggleThinking() {
+            const panel = document.querySelector('.thinking-stream');
+            const button = document.querySelector('.thinking-header button i');
+            if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
+                panel.style.maxHeight = '0px';
+                panel.style.overflow = 'hidden';
+                button.className = 'fas fa-chevron-up';
+            } else {
+                panel.style.maxHeight = '80px';
+                panel.style.overflow = 'auto';
+                button.className = 'fas fa-chevron-down';
+            }
+        }
+
+        // Initialize thinking panel
+        document.addEventListener('DOMContentLoaded', function () {
+            const panel = document.querySelector('.thinking-stream');
+            panel.style.maxHeight = '80px';
+            panel.style.transition = 'max-height 0.3s ease';
+        });
     </script>
 </body>
+
 </html>

@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -262,6 +262,99 @@ async def websocket_chat(websocket: WebSocket):
     except Exception as e:
         logger.error(f'WebSocket error: {e}', exc_info=True)
         await websocket.close()
+
+
+@app.post('/api/upload')
+async def upload_files(files: List[UploadFile] = File(...)):
+    """Upload files and return their saved paths"""
+    upload_dir = os.path.expanduser('~/babs-data/uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    saved_paths = []
+    for file in files:
+        file_path = os.path.join(upload_dir, file.filename)
+        # Handle duplicate filenames
+        base, ext = os.path.splitext(file.filename)
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(upload_dir, f"{base}_{counter}{ext}")
+            counter += 1
+            
+        content = await file.read()
+        with open(file_path, 'wb') as f:
+            f.write(content)
+        saved_paths.append(file_path)
+        
+    return {"paths": saved_paths}
+
+
+@app.websocket('/ws/thinking')
+async def websocket_thinking(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time thinking events from Supervisor
+    """
+    await websocket.accept()
+    logger.info('WebSocket thinking connection established')
+    
+    if not nc or not nc.is_connected:
+        await websocket.close()
+        return
+
+    async def msg_handler(msg):
+        try:
+            data = json.loads(msg.data.decode())
+            await websocket.send_json(data)
+        except Exception as e:
+            logger.error(f'Error pushing thinking event to ws: {e}')
+
+    try:
+        sub = await nc.subscribe("supervisor.thinking", cb=msg_handler)
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        logger.info('WebSocket thinking connection closed')
+    except Exception as e:
+        logger.error(f'WebSocket thinking error: {e}')
+    finally:
+        try:
+            await sub.unsubscribe()
+        except Exception:
+            pass
+
+
+@app.websocket('/ws/artifacts')
+async def websocket_artifacts(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time artifacts stream from Supervisor
+    """
+    await websocket.accept()
+    logger.info('WebSocket artifacts connection established')
+    
+    if not nc or not nc.is_connected:
+        await websocket.close()
+        return
+
+    async def msg_handler(msg):
+        try:
+            data = json.loads(msg.data.decode())
+            await websocket.send_json(data)
+        except Exception as e:
+            logger.error(f'Error pushing artifact event to ws: {e}')
+
+    try:
+        sub = await nc.subscribe("supervisor.artifact", cb=msg_handler)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        logger.info('WebSocket artifacts connection closed')
+    except Exception as e:
+        logger.error(f'WebSocket artifacts error: {e}')
+    finally:
+        try:
+            await sub.unsubscribe()
+        except Exception:
+            pass
 
 
 @app.get('/api/models/list')

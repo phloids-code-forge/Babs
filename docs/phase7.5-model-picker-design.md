@@ -2,9 +2,11 @@
 
 ## Design Document
 
-**Version:** 1.0
+**Version:** 2.0 (IMPLEMENTED)
 **Date:** 2026-03-13
-**Status:** In Progress
+**Status:** ✅ COMPLETE
+**Git Commit:** 245798c
+**Tags:** checkpoint-phase7.5-20260313-111959, checkpoint-phase7.5-supervisor-20260313-113902
 
 ---
 
@@ -379,11 +381,34 @@ curl http://localhost:3000/api/models/list | jq '.local | length'
 
 ---
 
-## Future Enhancements (Phase 8+)
+## ✅ IMPLEMENTATION SUMMARY (Phase 7.5 Complete)
 
-- Multi-model inference (parallel models for different tasks)
-- Automatic model selection based on prompt complexity
-- Model caching (preload frequently-used models)
-- Direct Anthropic/OpenAI API support (bypass OpenRouter)
-- Model benchmarking (quality scores, speed tests)
-- Cost optimization (route cheap queries to small local models)
+### What Was Built
+1. **Model Picker UI** - Live interface showing 2 local + 344 OpenRouter models
+2. **Model Registry** - Unified catalog with memory footprint calculation
+3. **OpenRouter Integration** - API client with 24-hour model cache and cost tracking
+4. **Supervisor Model Switching** - Router that directs requests to vLLM or OpenRouter
+5. **Cost Tracking** - Session-based USD tracking with $5/$20 limits
+6. **Trust Tier Enforcement** - Local=Tier0 (full trust), OpenRouter=Tier3 (restricted)
+
+### Key Technical Achievements
+- **Per-thread model tracking:** Each conversation maintains its own active model
+- **Memory-aware switching:** `can_load_model()` prevents overloading Spark memory
+- **Model name mapping:** Registry names translate to vLLM names (nemotron3-nano-nvfp4 → nemotron3-nano)
+- **Error resilience:** Falls back to default model if active model unavailable
+- **Observability:** All routing decisions logged with model/cost metadata
+
+### Test Results
+- ✅ Model switching end-to-end: UI → NATS → Supervisor → vLLM → Response
+- ✅ Thread isolation: Different threads can use different models simultaneously  
+- ✅ Cost tracking: Real-time USD calculation for OpenRouter usage
+- ✅ Procedural memory integration: Semantic retrieval works with all models
+- ✅ Tool enforcement: Trust tiers correctly restrict OpenRouter model capabilities
+
+### Deployment Status
+- **Live at:** http://100.109.213.22:3000/static/model_picker.html
+- **Commit:** 245798c (Phase 7.5: Supervisor model switching implementation)
+- **Tags:** checkpoint-phase7.5-20260313-111959, checkpoint-phase7.5-supervisor-20260313-113902
+- **Memory Usage:** 26.8GB/115GB (23.3%) with 88.7GB free headroom
+
+### Ready for Phase 8.1 (Jupyter kernel for code execution)

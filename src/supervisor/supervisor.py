@@ -344,6 +344,48 @@ class SupervisorService:
 
         return response
 
+    async def publish_thinking(self, message: str, event_type: str = "info"):
+        """Publish a thinking event to NATS"""
+        if self.nc and self.nc.is_connected:
+            event = {
+                "message": message,
+                "event_type": event_type,
+                "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+            }
+            await self.nc.publish("supervisor.thinking", json.dumps(event).encode())
+
+    async def save_artifact(self, title: str, content: str, artifact_type: str = "code"):
+        """Save an artifact to Qdrant and publish it"""
+        artifact_id = str(__import__('uuid').uuid4())
+        
+        event = {
+            "id": artifact_id,
+            "title": title,
+            "type": artifact_type,
+            "content": content,
+            "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+        }
+        
+        # Publish to NATS for realtime UI
+        if self.nc and self.nc.is_connected:
+            await self.nc.publish("supervisor.artifact", json.dumps(event).encode())
+
+        # Save to Qdrant artifacts collection
+        try:
+            vector = await self.get_embedding(f"{title}\n{content}")
+            if vector:
+                # Qdrant accepts UUID string as point ID
+                await self.qdrant_client.upsert(
+                    collection_name="artifacts",
+                    points=[{
+                        "id": artifact_id,
+                        "vector": vector,
+                        "payload": event
+                    }]
+                )
+        except Exception as e:
+            logger.error(f"Error saving artifact to Qdrant: {e}")
+
     async def get_embedding(self, text: str) -> List[float]:
         """
         Get embedding vector for text using G14 embedding service
@@ -436,6 +478,7 @@ class SupervisorService:
             self.threads[thread_id] = []
 
         # Retrieve relevant Procedural Memory
+        await self.publish_thinking("Retrieving relevant memories...", "memory")
         procedural_memories = await self.retrieve_procedural_memory(
             message.content,
             limit=2
@@ -475,6 +518,7 @@ class SupervisorService:
             f"Calling vLLM with {len(messages)} messages "
             f"and {len(tools)} tools"
         )
+        await self.publish_thinking(f"Thinking with {effective_model_name}...", "info")
         completion = await self.vllm_client.chat.completions.create(
             model=effective_model_name,
             messages=messages,
@@ -517,6 +561,7 @@ class SupervisorService:
                 func_args = json.loads(tool_call.function.arguments)
 
                 # Execute tool (Tier 0 tools auto-execute)
+                await self.publish_thinking(f"Executing tool {func_name}...", "tool")
                 result = await self.tool_registry.execute(
                     func_name,
                     func_args,
@@ -548,6 +593,7 @@ class SupervisorService:
             messages_with_tools.extend(self.threads[thread_id].copy())
 
             logger.info("Calling vLLM with tool results")
+            await self.publish_thinking("Analyzing tool results...", "info")
             completion = await self.vllm_client.chat.completions.create(
                 model=self.model_name,
                 messages=messages_with_tools,

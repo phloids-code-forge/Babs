@@ -9,6 +9,39 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body class="bg-gray-900 text-gray-100">
+    <!-- Top Navigation Bar -->
+    <nav class="babs-bg-primary border-b border-gray-700 p-4 flex justify-between items-center" style="background-color: #1a1a2e; border-color: #e94560;">
+        <div class="flex space-x-4 items-center">
+            <a href="/" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-home"></i>
+                <span>🏠 Home</span>
+            </a>
+            <a href="/static/model_picker.html" class="px-3 py-2 rounded bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-cog"></i>
+                <span>🎛️ Model Picker</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-brain"></i>
+                <span>📊 Memory Dashboard</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-cogs"></i>
+                <span>⚙️ Settings</span>
+            </a>
+            <a href="#" class="px-3 py-2 rounded hover:bg-gray-700 flex items-center space-x-2">
+                <i class="fas fa-question-circle"></i>
+                <span>❓ Help</span>
+            </a>
+        </div>
+        <div class="flex items-center space-x-4">
+            <div class="text-sm text-gray-300">
+                Active: <span class="font-bold text-red-500" style="color: #e94560;" x-data x-text="$store?.activeModelName || 'Nemotron 3 Nano'"></span>
+            </div>
+            <div class="text-sm text-gray-400">
+                <i class="fas fa-user mr-1"></i>phloid
+            </div>
+        </div>
+    </nav>
     <div x-data="modelPicker()" x-init="init()" class="min-h-screen p-6">
         <!-- Header -->
         <div class="mb-6">
