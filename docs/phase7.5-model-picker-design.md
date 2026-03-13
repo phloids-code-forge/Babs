@@ -391,24 +391,14 @@ curl http://localhost:3000/api/models/list | jq '.local | length'
 5. **Cost Tracking** - Session-based USD tracking with $5/$20 limits
 6. **Trust Tier Enforcement** - Local=Tier0 (full trust), OpenRouter=Tier3 (restricted)
 
-### Key Technical Achievements
-- **Per-thread model tracking:** Each conversation maintains its own active model
-- **Memory-aware switching:** `can_load_model()` prevents overloading Spark memory
-- **Model name mapping:** Registry names translate to vLLM names (nemotron3-nano-nvfp4 → nemotron3-nano)
-- **Error resilience:** Falls back to default model if active model unavailable
-- **Observability:** All routing decisions logged with model/cost metadata
-
-### Test Results
-- ✅ Model switching end-to-end: UI → NATS → Supervisor → vLLM → Response
-- ✅ Thread isolation: Different threads can use different models simultaneously  
-- ✅ Cost tracking: Real-time USD calculation for OpenRouter usage
-- ✅ Procedural memory integration: Semantic retrieval works with all models
-- ✅ Tool enforcement: Trust tiers correctly restrict OpenRouter model capabilities
+- **Registry Synchronization:** Resolved "split-brain" issue where the Supervisor loaded an empty catalog; now forces a fresh OpenRouter fetch on startup to ensure all models are recognized.
+- **Worker Override Prevention:** Fixed logic in `handle_worker_switch` to respect global model selection instead of reverting to worker defaults.
+- **Improved Visibility:** Added real-time thinking events for OpenRouter models and fixed model tracking in the toolpass analysis phase.
+- **Service Resilience:** Corrected NATS connectivity and API key environment propagation issues.
 
 ### Deployment Status
 - **Live at:** http://100.109.213.22:3000/static/model_picker.html
-- **Commit:** 245798c (Phase 7.5: Supervisor model switching implementation)
-- **Tags:** checkpoint-phase7.5-20260313-111959, checkpoint-phase7.5-supervisor-20260313-113902
+- **Last Checkpoint:** 2026-03-13 15:50 CDT
 - **Memory Usage:** 26.8GB/115GB (23.3%) with 88.7GB free headroom
 
-### Ready for Phase 8.1 (Jupyter kernel for code execution)
+### Ready for Phase 9 (Strategic Planning)

@@ -35,7 +35,7 @@
         </div>
         <div class="flex items-center space-x-4">
             <div class="text-sm text-gray-300">
-                Active: <span class="font-bold text-red-500" style="color: #e94560;" x-data x-text="$store?.activeModelName || 'Nemotron 3 Nano'"></span>
+                Active: <span class="font-bold text-red-500" style="color: #e94560;" x-text="activeModelName"></span>
             </div>
             <div class="text-sm text-gray-400">
                 <i class="fas fa-user mr-1"></i>phloid
@@ -391,6 +391,14 @@
                         
                         if (data.success) {
                             this.activeModelId = data.active_model;
+                            
+                            // Immediately update the active model name in the UI
+                            const selectedModel = this.models.find(m => m.id === modelId);
+                            if (selectedModel) {
+                                this.activeModelName = selectedModel.name;
+                                this.activeModelSource = selectedModel.source === 'local' ? 'Local' : 'OpenRouter';
+                            }
+                            
                             await this.loadModels();
                             this.showNotification(
                                 'Model Switched',

@@ -11,7 +11,7 @@ services:
       - MODEL_NAME=local/nemotron3-nano-nvfp4
       - QDRANT_URL=http://172.17.0.1:6333
       - EMBEDDING_URL=http://g14:8080
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-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}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-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}
       - MODELS_DIR=/home/dave/babs-data/models
       - CACHE_FILE=/home/dave/babs/config/model_registry.json
     volumes:

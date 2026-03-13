@@ -89,6 +89,12 @@ Each registry entry includes:
 
 The registry is stored in the version-controlled configuration layer. Babs can propose additions (via the Model Scouting Pipeline, see Section 12) but cannot activate a new model without phloid's approval (Tier 2 for remote models that incur cost, Tier 1 for local model swaps between already-approved candidates).
 
+**Registry Synchronization:**
+The Supervisor enforces a fresh fetch from OpenRouter on startup (`refresh_openrouter=True`) to harmonize the local `model_registry.json` with the current remote catalog. This prevents routing failures and fallback loops when new remote models are selected.
+
+**Persistent Routing Logic:**
+Model selection is persisted per-thread in `self.active_models` and globally in `self.model_name`. The orchestration layer ensures the correct model is used for both the primary reasoning pass and the subsequent analysis pass (after tool calls), eliminating hardcoded defaults in multi-turn logic.
+
 The test-before-download flow uses the registry directly: a model starts as a `remote-only` entry with an OpenRouter endpoint. Babs evaluates it via API. If approved, she downloads the weights, creates a `local` entry pointing to vLLM, and the `remote-only` entry is retired. The rest of the system does not need to know the model moved.
 
 **Intelligence Routing Layer:**

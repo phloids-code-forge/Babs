@@ -133,10 +133,10 @@ class SupervisorService:
             openrouter_client=self.openrouter_client
         )
         
-        # Load model registry from cache or scan fresh
-        if not self.model_registry.load_from_cache():
-            self.model_registry.list_all()
-            self.model_registry.save_to_cache()
+        # Initial load and refresh OpenRouter catalog
+        self.model_registry.load_from_cache()
+        self.model_registry.list_all(refresh_openrouter=True)
+        self.model_registry.save_to_cache()
 
         # Initialize cost tracker
         self.cost_tracker = CostTracker(budget_limit=20.0, warning_threshold=5.0)
@@ -208,6 +208,7 @@ class SupervisorService:
 
     async def handle_model_switch(self, msg: NATSMsg):
         """Handle model switch requests from NATS"""
+        logger.info(f"DEBUG: Entering handle_model_switch with data: {msg.data.decode()}")
         try:
             # Parse message
             data = json.loads(msg.data.decode())
@@ -234,9 +235,18 @@ class SupervisorService:
 
             logger.info(f"Switching to model: {model_id}")
             
-            # Note: For now, we're just tracking the active model
-            # In the future, we'll need to actually load/unload models
-            # from vLLM for local models
+            # Update global default and per-thread if applicable
+            self.model_name = model_id
+            
+            # We also update all active threads to use the new model
+            # as the user expectation is a global switch from the dashboard
+            for thread_id in self.threads:
+                self.active_models[thread_id] = model_id
+            
+            # Make sure future new threads also use it
+            self.active_models["default"] = model_id
+
+            logger.info(f"Model state updated to: {model_id}")
 
         except Exception as e:
             logger.error(f"Error handling model switch: {e}", exc_info=True)
@@ -263,8 +273,9 @@ class SupervisorService:
             self.active_workers[thread_id] = worker_name
             
             # Optionally switch to the worker's default model
+            # We respect the global default if set by user
             if data.get('use_default_model', True):
-                self.active_models[thread_id] = worker.default_model
+                self.active_models[thread_id] = self.model_name
                 
             # Send acknowledgment
             try:
@@ -277,7 +288,7 @@ class SupervisorService:
 
     async def handle_message(self, msg: NATSMsg):
         """Handle incoming message from NATS"""
-        
+        logger.info(f"DEBUG: Entering handle_message with data: {msg.data.decode()}")
         try:
             # Parse message
             data = json.loads(msg.data.decode())
@@ -385,6 +396,7 @@ class SupervisorService:
 
         # Call OpenRouter API
         logger.info(f"Calling OpenRouter with model: {model.id}")
+        await self.publish_thinking(f"Thinking with {model.id}...", "info")
         completion, usage_stats = self.openrouter_client.complete(
             messages=messages,
             model_id=model.id,
@@ -717,7 +729,7 @@ class SupervisorService:
             logger.info("Calling vLLM with tool results")
             await self.publish_thinking("Analyzing tool results...", "info")
             completion = await self.vllm_client.chat.completions.create(
-                model=self.model_name,
+                model=effective_model_name,
                 messages=messages_with_tools,
                 temperature=0.7,
                 max_tokens=4096

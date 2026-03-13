@@ -19,7 +19,7 @@ class WorkerBlueprint(BaseModel):
     description: str                    # e.g., "Expert Python developer"
     system_prompt: str                  # Core instructions for this worker
     tools: List[str]                    # List of tool names this worker can access
-    default_model: str = "nemotron3-nano" # Preferred model for this worker
+    default_model: str = "local/nemotron3-nano-nvfp4" # Preferred model for this worker
     trust_tier: TrustTier = TrustTier.TIER_0 # Starting trust level for this worker
 
 class WorkerStats(BaseModel):
@@ -54,7 +54,7 @@ class WorkerRegistry:
                 "Always think step-by-step. If code fails, analyze the error output and iterate until successful."
             ),
             tools=["execute_python", "web_search"],
-            default_model="nemotron3-nano",
+            default_model="local/nemotron3-nano-nvfp4",
             trust_tier=TrustTier.TIER_1 # Coding worker starts with Tier 1 (can execute python)
         ))
         
@@ -70,7 +70,7 @@ class WorkerRegistry:
                 "Provide concise, informative, and friendly responses."
             ),
             tools=["web_search"],
-            default_model="nemotron3-nano",
+            default_model="local/nemotron3-nano-nvfp4",
             trust_tier=TrustTier.TIER_0
         ))
 

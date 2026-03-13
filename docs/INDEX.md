@@ -1,8 +1,8 @@
 # Architecture Prompt: File Index
 
-**Prompt Version:** 5.9
-**Last Updated:** 2026-03-12
-**Status:** Phase 1 in progress. vLLM 0.17.1rc1 serving Nemotron 3 Super NVFP4 at 14.8 tok/s but crashing on extended generation (SM121 illegal instruction). --enforce-eager untested, Nano fallback available. Directory structure and git repo initialized. Open WebUI pulled. G14 auxiliary node OS and networking complete, service deployment pending.
+**Prompt Version:** 6.5
+**Last Updated:** 2026-03-13
+**Status:** Phase 8 Complete. Workers, isolated Jupyter execution, and persistent model routing implementation verified. Multi-agent hierarchy (Supervisor/Worker) is operational with integrated Episodic Memory and real-time model switching.
 
 ---
 
