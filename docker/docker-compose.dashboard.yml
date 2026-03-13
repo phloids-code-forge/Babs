@@ -1,0 +1,37 @@
+services:
+  dashboard:
+    build:
+      context: ../src/dashboard
+      dockerfile: Dockerfile
+    container_name: babs-dashboard
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NATS_URL=nats://nats-babs:4222
+      - USER_ID=phloid
+    networks:
+      - babs-net
+    depends_on:
+      - nats
+
+  nats:
+    image: nats:latest
+    container_name: nats-babs
+    restart: always
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    volumes:
+      - /home/dave/babs-data/nats:/data
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+    networks:
+      - babs-net
+
+networks:
+  babs-net:
+    external: true
+    name: docker_babs-net

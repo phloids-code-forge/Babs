@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Babs Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div x-data="dashboard()" x-init="init()" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700">
+            <div class="container mx-auto px-4 py-4">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-2xl font-bold">Babs</h1>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-sm text-gray-400">phloid</span>
+                        <button
+                            @click="showServices = !showServices"
+                            class="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-sm"
+                        >
+                            <span x-show="!showServices">Show Services</span>
+                            <span x-show="showServices">Hide Services</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="container mx-auto px-4 py-6 max-w-6xl">
+            <!-- Service Status Cards (collapsible) -->
+            <div x-show="showServices" x-transition class="mb-6">
+                <h2 class="text-lg font-semibold mb-3">Services</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="service in services" :key="service.name">
+                        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="font-semibold text-sm" x-text="service.name"></h3>
+                                <span
+                                    class="px-2 py-1 rounded text-xs font-medium"
+                                    :class="{
+                                        'bg-green-900 text-green-200': service.status === 'running',
+                                        'bg-red-900 text-red-200': service.status === 'stopped',
+                                        'bg-gray-700 text-gray-300': service.status === 'unknown'
+                                    }"
+                                    x-text="service.status"
+                                ></span>
+                            </div>
+                            <p class="text-xs text-gray-400" x-text="service.details"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 flex flex-col" style="height: calc(100vh - 250px);">
+                <!-- Messages -->
+                <div
+                    class="flex-1 overflow-y-auto p-4 space-y-4"
+                    x-ref="messagesContainer"
+                >
+                    <template x-for="(msg, index) in messages" :key="index">
+                        <div
+                            class="flex"
+                            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+                        >
+                            <div
+                                class="max-w-3xl rounded-lg px-4 py-3"
+                                :class="msg.role === 'user'
+                                    ? 'bg-blue-900 text-blue-100'
+                                    : 'bg-gray-700 text-gray-100'"
+                            >
+                                <div class="text-xs font-semibold mb-1 opacity-75" x-text="msg.role === 'user' ? 'You' : 'Babs'"></div>
+                                <div class="whitespace-pre-wrap" x-text="msg.content"></div>
+                                <div
+                                    x-show="msg.model"
+                                    class="text-xs text-gray-400 mt-2"
+                                    x-text="'Model: ' + msg.model"
+                                ></div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Loading indicator -->
+                    <div x-show="loading" class="flex justify-start">
+                        <div class="bg-gray-700 rounded-lg px-4 py-3">
+                            <div class="text-xs font-semibold mb-1 opacity-75">Babs</div>
+                            <div class="flex items-center space-x-2">
+                                <div class="animate-pulse">Thinking...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input -->
+                <div class="border-t border-gray-700 p-4">
+                    <form @submit.prevent="sendMessage()" class="flex space-x-2">
+                        <input
+                            type="text"
+                            x-model="userInput"
+                            :disabled="loading"
+                            placeholder="Message Babs..."
+                            class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                        >
+                        <button
+                            type="submit"
+                            :disabled="loading || !userInput.trim()"
+                            class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Send
+                        </button>
+                    </form>
+                    <div class="mt-2 text-xs text-gray-500">
+                        Thread ID: <span x-text="threadId"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                messages: [],
+                userInput: '',
+                loading: false,
+                services: [],
+                showServices: true,
+                threadId: generateUUID(),
+
+                async init() {
+                    await this.loadServices();
+                    // Refresh services every 30 seconds
+                    setInterval(() => this.loadServices(), 30000);
+                },
+
+                async loadServices() {
+                    try {
+                        const response = await fetch('/api/services');
+                        this.services = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load services:', error);
+                    }
+                },
+
+                async sendMessage() {
+                    if (!this.userInput.trim() || this.loading) return;
+
+                    const userMessage = this.userInput.trim();
+                    this.userInput = '';
+
+                    // Add user message to chat
+                    this.messages.push({
+                        role: 'user',
+                        content: userMessage
+                    });
+
+                    this.loading = true;
+                    this.scrollToBottom();
+
+                    try {
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                content: userMessage,
+                                thread_id: this.threadId
+                            })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+
+                        const data = await response.json();
+
+                        // Update thread ID
+                        this.threadId = data.thread_id;
+
+                        // Add assistant response
+                        this.messages.push({
+                            role: 'assistant',
+                            content: data.content,
+                            model: data.model
+                        });
+
+                    } catch (error) {
+                        console.error('Error sending message:', error);
+                        this.messages.push({
+                            role: 'assistant',
+                            content: `Error: ${error.message}`
+                        });
+                    } finally {
+                        this.loading = false;
+                        this.scrollToBottom();
+                    }
+                },
+
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = this.$refs.messagesContainer;
+                        container.scrollTop = container.scrollHeight;
+                    });
+                }
+            }
+        }
+
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    </script>
+</body>
+</html>

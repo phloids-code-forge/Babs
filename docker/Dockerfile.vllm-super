@@ -1,0 +1,38 @@
+FROM nvcr.io/nvidia/vllm:26.02-py3
+
+# Unset NVIDIA's pip constraint
+ENV PIP_CONSTRAINT=""
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+# Clone and build vLLM from source for CUDA 13.1 compatibility
+WORKDIR /tmp
+RUN git clone https://github.com/vllm-project/vllm.git --depth=1
+WORKDIR /tmp/vllm
+
+# Use latest main branch (March 2026) which should have CUDA 13.1 support
+# Check out a known stable version for CUDA 13.1 compatibility
+RUN git fetch --tags && \
+    git checkout tags/v0.14.0  # Known stable version
+
+# First install PyTorch with CUDA 13.1 support
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu131
+# Install vLLM in development mode
+RUN pip install -e . \
+    --no-cache-dir \
+    --extra-index-url https://pypi.nvidia.com
+
+# Verify vLLM installation and CUDA version compatibility
+RUN python -c "import vllm; print(f'vLLM version: {vllm.__version__}')" && \
+    python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}')"
+# Copy the custom reasoning parser
+COPY super_v3_reasoning_parser.py /opt/super_v3_reasoning_parser.py
+
+# Clean up build artifacts
+WORKDIR /
+RUN rm -rf /tmp/vllm
+

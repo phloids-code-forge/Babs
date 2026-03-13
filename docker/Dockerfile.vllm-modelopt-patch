@@ -1,0 +1,59 @@
+FROM avarok/vllm-dgx-spark:v11
+
+# The avarok/vllm-dgx-spark:v11 container has vLLM 0.14.0rc1
+# We need to patch it to accept MIXED_PRECISION quantization
+
+# Install patched vllm-engine
+RUN pip uninstall -y vllm-engine
+
+# Clone and patch vLLM
+WORKDIR /tmp
+RUN git clone https://github.com/vllm-project/vllm.git --depth=1
+WORKDIR /tmp/vllm
+RUN git checkout v0.14.0rc1
+
+# Patch the quantization validation to accept MIXED_PRECISION
+RUN sed -i "s/ModelOpt currently only supports: \['FP8', 'NVFP4'\]/ModelOpt currently only supports: \['FP8', 'NVFP4', 'MIXED_PRECISION'\]/g" \
+    vllm/model_executor/layers/quantization/modelopt/__init__.py
+
+# Also patch the validation logic to accept MIXED_PRECISION
+RUN python -c "
+import re
+import os
+
+# Read the file
+file_path = 'vllm/model_executor/layers/quantization/modelopt/__init__.py'
+with open(file_path, 'r') as f:
+    content = f.read()
+
+# Find and patch the validation logic
+# Look for the validate_quantization method
+pattern = r'def validate_quantization\(self, quantization: str\) -> None:.*?(?=\n\n|\n\s*def|\Z)'
+match = re.search(pattern, content, re.DOTALL)
+if match:
+    method_text = match.group(0)
+    # Add MIXED_PRECISION to allowed quantizations
+    method_text = method_text.replace(
+        'if quantization not in [\"FP8\", \"NVFP4\"]:',
+        'if quantization not in [\"FP8\", \"NVFP4\", \"MIXED_PRECISION\"]:'
+    )
+    # Update the error message
+    method_text = method_text.replace(
+        '\"ModelOpt currently only supports: [\'FP8\', \'NVFP4\']\"',
+        '\"ModelOpt currently only supports: [\'FP8\', \'NVFP4\', \'MIXED_PRECISION\']\"'
+    )
+    content = content[:match.start()] + method_text + content[match.end():]
+
+with open(file_path, 'w') as f:
+    f.write(content)
+"
+
+# Install the patched vLLM
+RUN pip install -e .
+
+# Copy the custom reasoning parser
+COPY super_v3_reasoning_parser.py /opt/super_v3_reasoning_parser.py
+
+# Clean up
+WORKDIR /
+RUN rm -rf /tmp/vllm

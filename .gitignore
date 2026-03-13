@@ -1,24 +1,75 @@
-# Runtime data lives outside the repo
-/babs-data/
-
 # Python
 __pycache__/
-*.pyc
-*.pyo
-.venv/
+*.py[cod]
+*$py.class
+*.so
+.Python
 *.egg-info/
-
-# Docker
-.env
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
 
 # IDE
 .vscode/
 .idea/
-
-# OS
+*.swp
+*.swo
+*~
 .DS_Store
-Thumbs.db
 
-# Secrets (API keys go in .env, not committed)
-*.secret
+# Logs
+*.log
+logs/
+
+# Temporary test and diagnostic scripts
+diagnose_issues.py
+test_*.py
+direct_*.py
+minimal_*.py
+verify_*.py
+
+# Temporary helper scripts
+execute_for_claude
+execute_for_claude.sh
+fix_claude_permissions.sh
+run_claude_command.sh
+fix_deployment.sh
+simple_deploy.sh
+simple_fix.sh
+start_deployment.sh
+test_execution.sh
+direct_fix.sh
+minimal_fix.sh
+
+# Temporary documentation
+DEEPSEEK_PROMPT.md
+EXECUTE-VLLM-UPGRADE.md
+EXECUTE_DEPLOYMENT.md
+SOLUTION_README.md
+VLLM-UPGRADE-PLAN.md
+claude_command_log.txt
+
+# Docker temp files
+Dockerfile.vllm-cuda13-simple
+
+# Data directories (stored in ~/babs-data)
+data/
+cache/
+models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Secrets
+.env
 *.key
+*.pem
+credentials.json
+secrets/

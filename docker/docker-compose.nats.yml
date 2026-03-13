@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  nats:
+    image: nats:latest
+    container_name: nats-babs
+    restart: always
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP management
+      - "6222:6222"  # Cluster routing (for future multi-node)
+    volumes:
+      - /home/dave/babs-data/nats:/data
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+    networks:
+      - babs-net
+
+networks:
+  babs-net:
+    driver: bridge

@@ -1,0 +1,38 @@
+services:
+  supervisor:
+    build:
+      context: ../src/supervisor
+      dockerfile: Dockerfile
+    container_name: babs-supervisor
+    restart: always
+    environment:
+      - NATS_URL=nats://nats-babs:4222
+      - VLLM_URL=http://172.17.0.1:8000/v1
+      - MODEL_NAME=nemotron3-nano
+      - QDRANT_URL=http://172.17.0.1:6333
+      - EMBEDDING_URL=http://g14:8080
+    networks:
+      - babs-net
+    depends_on:
+      - nats
+
+  nats:
+    image: nats:latest
+    container_name: nats-babs
+    restart: always
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"
+    volumes:
+      - /home/dave/babs-data/nats:/data
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+    networks:
+      - babs-net
+
+networks:
+  babs-net:
+    external: true
+    name: docker_babs-net
