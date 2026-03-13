@@ -1,0 +1,17 @@
+services:
+  babs-jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    container_name: babs-jupyter
+    restart: always
+    # NO ports exposed to host for security! Only accessible via babs-network
+    networks:
+      - babs-network
+    volumes:
+      - ~/babs-data/jupyter-workspace:/workspace
+    working_dir: /workspace
+
+networks:
+  babs-network:
+    external: true

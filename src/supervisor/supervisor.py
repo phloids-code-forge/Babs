@@ -27,12 +27,14 @@ from qdrant_client.models import ScoredPoint
 
 from src.supervisor.tools import ToolRegistry, TrustTier
 from src.supervisor.tool_searxng import searxng_tool, search_web
+from src.supervisor.tool_jupyter import execute_python_tool, execute_python
+from src.supervisor.workers import worker_registry
+from src.supervisor.reflection import ReflectionLoop
 
 # Import model registry and OpenRouter integration
 sys.path.insert(0, '/home/dave/babs')
 from src.supervisor.openrouter import OpenRouterClient, CostTracker, Model
 from src.supervisor.model_registry import ModelRegistry
-
 
 # Configure logging
 logging.basicConfig(
@@ -41,7 +43,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 class Message(BaseModel):
     """Incoming message structure from NATS"""
     content: str
@@ -49,14 +50,12 @@ class Message(BaseModel):
     user_id: str = "phloid"
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-
 class Response(BaseModel):
     """Response structure to NATS"""
     content: str
     thread_id: Optional[str] = None
     model: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
-
 
 class SupervisorService:
     """
@@ -102,6 +101,12 @@ class SupervisorService:
         
         # Active model per thread
         self.active_models: Dict[str, str] = {}  # thread_id -> model_id
+        
+        # Active worker per thread
+        self.active_workers: Dict[str, str] = {} # thread_id -> worker_name
+        
+        # Reflection / Dreaming system
+        self.reflection_loop = ReflectionLoop(self)
 
     async def connect(self):
         """Connect to NATS, vLLM, Qdrant, and initialize clients"""
@@ -139,11 +144,23 @@ class SupervisorService:
         # Register tools
         logger.info("Registering tools...")
         self.tool_registry.register(searxng_tool, search_web)
+        self.tool_registry.register(execute_python_tool, execute_python)
+
+        # Ensure Qdrant collections exist
+        await self.ensure_collections()
+
+        # Start background tasks
+        self.reflection_loop.start()
+        
+        
 
         logger.info("Supervisor connected successfully")
 
     async def disconnect(self):
         """Disconnect from NATS"""
+        if self.reflection_loop:
+            self.reflection_loop.stop()
+            
         if self.nc:
             await self.nc.drain()
             logger.info("Supervisor disconnected")
@@ -167,6 +184,27 @@ class SupervisorService:
         
         # Return mapped name or original if no mapping
         return model_mappings.get(model_id, model_id)
+
+    async def ensure_collections(self):
+        """Ensure necessary Qdrant collections exist"""
+        logger.info("Ensuring Qdrant collections exist...")
+        collections = ["procedural_memory", "episodic_memory", "artifacts"]
+        
+        try:
+            existing = await self.qdrant_client.get_collections()
+            existing_names = [c.name for c in existing.collections]
+            
+            for name in collections:
+                if name not in existing_names:
+                    logger.info(f"Creating collection: {name}")
+                    # Using 768 dimensions for G14 embeddings
+                    from qdrant_client.models import Distance, VectorParams
+                    await self.qdrant_client.create_collection(
+                        collection_name=name,
+                        vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+                    )
+        except Exception as e:
+            logger.error(f"Error ensuring Qdrant collections: {e}")
 
     async def handle_model_switch(self, msg: NATSMsg):
         """Handle model switch requests from NATS"""
@@ -203,8 +241,43 @@ class SupervisorService:
         except Exception as e:
             logger.error(f"Error handling model switch: {e}", exc_info=True)
 
+    async def handle_worker_switch(self, msg: NATSMsg):
+        """Handle worker switch requests from NATS"""
+        
+        try:
+            # Parse message
+            data = json.loads(msg.data.decode())
+            thread_id = data.get('thread_id', 'default')
+            worker_name = data.get('worker_name')
+            
+            if not worker_name:
+                logger.error("Worker switch request missing worker_name")
+                return
+                
+            worker = worker_registry.get_worker(worker_name)
+            if not worker:
+                logger.error(f"Worker not found: {worker_name}")
+                return
+                
+            logger.info(f"Thread {thread_id} switching to worker: {worker_name}")
+            self.active_workers[thread_id] = worker_name
+            
+            # Optionally switch to the worker's default model
+            if data.get('use_default_model', True):
+                self.active_models[thread_id] = worker.default_model
+                
+            # Send acknowledgment
+            try:
+                await msg.respond(json.dumps({"status": "success", "worker": worker_name}).encode())
+            except:
+                pass
+
+        except Exception as e:
+            logger.error(f"Error handling worker switch: {e}", exc_info=True)
+
     async def handle_message(self, msg: NATSMsg):
         """Handle incoming message from NATS"""
+        
         try:
             # Parse message
             data = json.loads(msg.data.decode())
@@ -484,10 +557,17 @@ class SupervisorService:
             limit=2
         )
 
-        # Build system message with Procedural Memory context
+        # Build system message with Worker prompt and Procedural Memory context
         system_content = ""
+        
+        # Inject worker blueprint system prompt
+        active_worker_name = self.active_workers.get(thread_id, "general_worker")
+        worker = worker_registry.get_worker(active_worker_name)
+        if worker:
+            system_content = f"{worker.system_prompt}\n\n"
+        
         if procedural_memories:
-            system_content = "# Relevant Procedural Memory\n\n"
+            system_content += "# Relevant Procedural Memory\n\n"
             for mem in procedural_memories:
                 system_content += f"## {mem['id']} (domain: {mem['domain']})\n\n"
                 system_content += f"{mem['content']}\n\n"
@@ -507,8 +587,13 @@ class SupervisorService:
             })
         messages.extend(self.threads[thread_id].copy())
 
-        # Get available tools for vLLM
-        tools = self.tool_registry.get_tools_for_vllm()
+        # Get available tools for vLLM, filtered by active worker's tools
+        all_tools = self.tool_registry.get_tools_for_vllm()
+        tools = []
+        if worker:
+            tools = [t for t in all_tools if t['function']['name'] in worker.tools]
+        else:
+            tools = all_tools
 
         # Use the provided model name or fall back to default
         effective_model_name = model_name or self.model_name
@@ -598,6 +683,13 @@ class SupervisorService:
                     approved=approved
                 )
 
+                # Record performance in worker registry if a worker is active
+                active_worker_name = self.active_workers.get(thread_id, "general_worker")
+                worker_registry.record_success(
+                    active_worker_name, 
+                    tool_success=result.success
+                )
+
                 tool_results.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
@@ -634,14 +726,15 @@ class SupervisorService:
             assistant_message = completion.choices[0].message
 
         # Add final assistant response to thread
+        content = assistant_message.content or ""
         self.threads[thread_id].append({
             "role": "assistant",
-            "content": assistant_message.content
+            "content": content
         })
 
         # Build response
         response = Response(
-            content=assistant_message.content,
+            content=content,
             thread_id=thread_id,
             model=effective_model_name,
             metadata={
@@ -653,6 +746,7 @@ class SupervisorService:
 
     async def handle_ping(self, msg: NATSMsg):
         """Handle ping requests to check Supervisor health"""
+        
         try:
             await msg.respond(b'pong')
         except Exception as e:
@@ -670,6 +764,10 @@ class SupervisorService:
         logger.info("Subscribing to supervisor.model_switch subject")
         await self.nc.subscribe("supervisor.model_switch", cb=self.handle_model_switch)
 
+        # Subscribe to worker switch subject
+        logger.info("Subscribing to supervisor.worker_switch subject")
+        await self.nc.subscribe("supervisor.worker_switch", cb=self.handle_worker_switch)
+
         # Subscribe to supervisor ping subject
         logger.info("Subscribing to supervisor.ping subject")
         await self.nc.subscribe("supervisor.ping", cb=self.handle_ping)
@@ -684,7 +782,6 @@ class SupervisorService:
             logger.info("Shutting down...")
         finally:
             await self.disconnect()
-
 
 async def main():
     """Main entry point"""
@@ -709,7 +806,6 @@ async def main():
     )
 
     await supervisor.run()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

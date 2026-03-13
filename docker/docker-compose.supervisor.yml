@@ -17,6 +17,7 @@ services:
     volumes:
       - /home/dave/babs-data:/home/dave/babs-data
       - /home/dave/babs/config:/home/dave/babs/config
+      - /home/dave/babs/src:/home/dave/babs/src
     networks:
       - babs-net
     depends_on:
