@@ -1,0 +1,29 @@
+# ComfyUI extra model paths
+# Lets ComfyUI find models stored outside /opt/comfyui/models/
+# Edit this file and restart the container - no rebuild needed.
+
+babs_models:
+    # Point at any subdirectories you want ComfyUI to scan.
+    # Key = ComfyUI model type, value = path inside the container.
+    # The volume mount maps ~/babs-data/comfyui/models -> /opt/comfyui/models
+    # so paths below are relative to that.
+    #
+    # To add a second model root (e.g. a fast SSD scratch space), duplicate
+    # the block with a different name.
+    checkpoints: /opt/comfyui/models/checkpoints/
+    clip: /opt/comfyui/models/clip/
+    clip_vision: /opt/comfyui/models/clip_vision/
+    configs: /opt/comfyui/models/configs/
+    controlnet: /opt/comfyui/models/controlnet/
+    diffusion_models: /opt/comfyui/models/diffusion_models/
+    embeddings: /opt/comfyui/models/embeddings/
+    gligen: /opt/comfyui/models/gligen/
+    hypernetworks: /opt/comfyui/models/hypernetworks/
+    ipadapter: /opt/comfyui/models/ipadapter/
+    loras: /opt/comfyui/models/loras/
+    photomaker: /opt/comfyui/models/photomaker/
+    style_models: /opt/comfyui/models/style_models/
+    unet: /opt/comfyui/models/unet/
+    upscale_models: /opt/comfyui/models/upscale_models/
+    vae: /opt/comfyui/models/vae/
+    vae_approx: /opt/comfyui/models/vae_approx/

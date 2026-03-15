@@ -1,0 +1,17 @@
+[Unit]
+Description=Babs Dropzone Model Auto-Sorter
+Documentation=https://github.com/phloid/babs
+After=network.target
+
+[Service]
+Type=simple
+User=dave
+ExecStart=/usr/bin/python3 /home/dave/babs/scripts/dropzone-watch.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dropzone-watch
+
+[Install]
+WantedBy=multi-user.target

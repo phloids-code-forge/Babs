@@ -93,10 +93,11 @@ class ReflectionLoop:
             content = msg.get('content', '')
             prompt += f"{role.upper()}: {content}\n"
             
-        # Call vLLM directly via supervisor's client
+        # Call vLLM directly via supervisor's client (use mapped model name)
         try:
+            vllm_model = self.supervisor._map_to_vllm_model_name(self.supervisor.model_name)
             response = await self.supervisor.vllm_client.chat.completions.create(
-                model=self.supervisor.model_name,
+                model=vllm_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=512,
                 temperature=0.3

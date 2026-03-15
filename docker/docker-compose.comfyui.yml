@@ -1,0 +1,44 @@
+services:
+  comfyui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.comfyui
+    image: comfyui-spark:latest
+    container_name: comfyui-babs
+    restart: unless-stopped
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - CIVITAI_API_KEY=${CIVITAI_API_KEY:-}
+    ports:
+      - "8188:8188"
+    volumes:
+      # Models - shared with babs-data, plus comfyui-specific subdirs
+      - /home/dave/babs-data/comfyui/models:/opt/comfyui/models
+      # LoRAs, embeddings, etc share the same comfyui dir
+      - /home/dave/babs-data/comfyui/custom_nodes_data:/opt/comfyui/custom_nodes/ComfyUI-Manager/user
+      # Outputs
+      - /home/dave/babs-data/comfyui/output:/opt/comfyui/output
+      # Input (for img2img uploads)
+      - /home/dave/babs-data/comfyui/input:/opt/comfyui/input
+      # User workflows and settings
+      - /home/dave/babs-data/comfyui/user:/opt/comfyui/user
+      # Extra model paths config (live-editable without rebuild)
+      - /home/dave/babs/config/comfyui-extra-paths.yaml:/opt/comfyui/extra_model_paths.yaml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 70g
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - babs-net
+    shm_size: 16gb
+
+networks:
+  babs-net:
+    external: true
+    name: docker_babs-net

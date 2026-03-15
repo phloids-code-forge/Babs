@@ -19,15 +19,16 @@ from typing import Optional, Dict, Any, List
 import aiohttp
 import nats
 from nats.aio.msg import Msg as NATSMsg
-from nats.errors import TimeoutError as NATSTimeoutError
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import ScoredPoint
 
 from src.supervisor.tools import ToolRegistry, TrustTier
 from src.supervisor.tool_searxng import searxng_tool, search_web
 from src.supervisor.tool_jupyter import execute_python_tool, execute_python
+from src.supervisor.tool_files import read_file_tool, write_file_tool, read_file, write_file
+from src.supervisor.tool_shell import shell_tool, shell
+from src.supervisor.thread_store import ThreadStore
 from src.supervisor.workers import worker_registry
 from src.supervisor.reflection import ReflectionLoop
 
@@ -96,8 +97,9 @@ class SupervisorService:
         self.model_registry: Optional[ModelRegistry] = None
         self.cost_tracker: Optional[CostTracker] = None
 
-        # Conversation threads (in-memory for now)
+        # Conversation threads -- in-memory cache, persisted to SQLite
         self.threads: Dict[str, list] = {}
+        self.thread_store = ThreadStore(db_path="/home/dave/babs-data/threads.db")
         
         # Active model per thread
         self.active_models: Dict[str, str] = {}  # thread_id -> model_id
@@ -110,6 +112,8 @@ class SupervisorService:
 
     async def connect(self):
         """Connect to NATS, vLLM, Qdrant, and initialize clients"""
+        self.thread_store.initialize()
+
         logger.info(f"Connecting to NATS at {self.nats_url}")
         self.nc = await nats.connect(self.nats_url)
         self.js = self.nc.jetstream()
@@ -145,6 +149,9 @@ class SupervisorService:
         logger.info("Registering tools...")
         self.tool_registry.register(searxng_tool, search_web)
         self.tool_registry.register(execute_python_tool, execute_python)
+        self.tool_registry.register(read_file_tool, read_file)
+        self.tool_registry.register(write_file_tool, write_file)
+        self.tool_registry.register(shell_tool, shell)
 
         # Ensure Qdrant collections exist
         await self.ensure_collections()
@@ -161,6 +168,8 @@ class SupervisorService:
         if self.reflection_loop:
             self.reflection_loop.stop()
             
+        self.thread_store.close()
+
         if self.nc:
             await self.nc.drain()
             logger.info("Supervisor disconnected")
@@ -326,7 +335,7 @@ class SupervisorService:
         # Get or create conversation thread
         thread_id = message.thread_id or "default"
         if thread_id not in self.threads:
-            self.threads[thread_id] = []
+            self.threads[thread_id] = self.thread_store.load(thread_id)
 
         # Get active model for this thread (or use default)
         active_model_id = self.active_models.get(thread_id, self.model_name)
@@ -363,18 +372,24 @@ class SupervisorService:
         # Get or create conversation thread
         thread_id = message.thread_id or "default"
         if thread_id not in self.threads:
-            self.threads[thread_id] = []
+            self.threads[thread_id] = self.thread_store.load(thread_id)
 
-        # Retrieve relevant Procedural Memory
-        procedural_memories = await self.retrieve_procedural_memory(
-            message.content,
-            limit=2
+        # Retrieve relevant memories in parallel
+        procedural_memories, episodic_memories = await asyncio.gather(
+            self.retrieve_procedural_memory(message.content, limit=2),
+            self.retrieve_episodic_memory(message.content, limit=2)
         )
 
-        # Build system message with Procedural Memory context
+        # Build system message with memory context
         system_content = ""
+        if episodic_memories:
+            system_content += "# Relevant Past Conversations\n\n"
+            for mem in episodic_memories:
+                ts = mem.get("timestamp", "unknown time")
+                system_content += f"## {ts}\n\n{mem['summary']}\n\n"
+
         if procedural_memories:
-            system_content = "# Relevant Procedural Memory\n\n"
+            system_content += "# Relevant Procedural Memory\n\n"
             for mem in procedural_memories:
                 system_content += f"## {mem['id']} (domain: {mem['domain']})\n\n"
                 system_content += f"{mem['content']}\n\n"
@@ -394,14 +409,18 @@ class SupervisorService:
             })
         messages.extend(self.threads[thread_id].copy())
 
-        # Call OpenRouter API
+        # Call OpenRouter API (sync client -- run in thread pool to avoid blocking the event loop)
         logger.info(f"Calling OpenRouter with model: {model.id}")
         await self.publish_thinking(f"Thinking with {model.id}...", "info")
-        completion, usage_stats = self.openrouter_client.complete(
-            messages=messages,
-            model_id=model.id,
-            max_tokens=4096,
-            temperature=0.7
+        loop = asyncio.get_event_loop()
+        completion, usage_stats = await loop.run_in_executor(
+            None,
+            lambda: self.openrouter_client.complete(
+                messages=messages,
+                model_id=model.id,
+                max_tokens=4096,
+                temperature=0.7
+            )
         )
 
         # Track costs
@@ -414,6 +433,9 @@ class SupervisorService:
             "role": "assistant",
             "content": completion
         })
+
+        # Persist thread
+        self.thread_store.save(thread_id, self.threads[thread_id])
 
         # Build response
         response = Response(
@@ -496,6 +518,46 @@ class SupervisorService:
                     return data[0]
                 return []
 
+    async def retrieve_episodic_memory(
+        self,
+        query: str,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant Episodic Memory entries for a query.
+        These are LLM-generated summaries of past conversations.
+        """
+        try:
+            query_vector = await self.get_embedding(query)
+            if not query_vector:
+                return []
+
+            results = await self.qdrant_client.query_points(
+                collection_name="episodic_memory",
+                query=query_vector,
+                limit=limit
+            )
+
+            memories = []
+            for point in results.points:
+                payload = point.payload
+                memories.append({
+                    "thread_id": payload.get("thread_id"),
+                    "summary": payload.get("summary"),
+                    "timestamp": payload.get("timestamp"),
+                    "score": point.score
+                })
+                logger.info(
+                    f"Retrieved episodic memory: thread={payload.get('thread_id')} "
+                    f"(score: {point.score:.3f})"
+                )
+
+            return memories
+
+        except Exception as e:
+            logger.error(f"Error retrieving Episodic Memory: {e}", exc_info=True)
+            return []
+
     async def retrieve_procedural_memory(
         self,
         query: str,
@@ -560,24 +622,30 @@ class SupervisorService:
         # Get or create conversation thread
         thread_id = message.thread_id or "default"
         if thread_id not in self.threads:
-            self.threads[thread_id] = []
+            self.threads[thread_id] = self.thread_store.load(thread_id)
 
-        # Retrieve relevant Procedural Memory
+        # Retrieve relevant memories in parallel
         await self.publish_thinking("Retrieving relevant memories...", "memory")
-        procedural_memories = await self.retrieve_procedural_memory(
-            message.content,
-            limit=2
+        procedural_memories, episodic_memories = await asyncio.gather(
+            self.retrieve_procedural_memory(message.content, limit=2),
+            self.retrieve_episodic_memory(message.content, limit=2)
         )
 
-        # Build system message with Worker prompt and Procedural Memory context
+        # Build system message with Worker prompt and memory context
         system_content = ""
-        
+
         # Inject worker blueprint system prompt
         active_worker_name = self.active_workers.get(thread_id, "general_worker")
         worker = worker_registry.get_worker(active_worker_name)
         if worker:
             system_content = f"{worker.system_prompt}\n\n"
-        
+
+        if episodic_memories:
+            system_content += "# Relevant Past Conversations\n\n"
+            for mem in episodic_memories:
+                ts = mem.get("timestamp", "unknown time")
+                system_content += f"## {ts}\n\n{mem['summary']}\n\n"
+
         if procedural_memories:
             system_content += "# Relevant Procedural Memory\n\n"
             for mem in procedural_memories:
@@ -743,6 +811,9 @@ class SupervisorService:
             "role": "assistant",
             "content": content
         })
+
+        # Persist thread
+        self.thread_store.save(thread_id, self.threads[thread_id])
 
         # Build response
         response = Response(

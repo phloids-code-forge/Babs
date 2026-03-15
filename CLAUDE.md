@@ -12,6 +12,11 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 
 ## Current State (2026-03-15 Updated)
 
+### System Stability
+
+- **earlyoom:** Installed and running (`systemctl status earlyoom`). Kills highest OOM-score process when free RAM < 10%. Prevents kernel from cascading into session infrastructure before hitting the real culprit.
+- **ComfyUI memory cap:** 70GB Docker limit in `docker-compose.comfyui.yml`. `cicc` (CUDA JIT compiler) previously consumed 3.3GB uncapped and caused a full OOM cascade that required a reboot.
+
 ### What's Running
 
 | Container | Image | Port | Status |
@@ -21,6 +26,8 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 | babs-supervisor | docker-supervisor (custom) | -- | Running. Routes NATS -> vLLM, manages tools, retrieves from Procedural Memory. |
 | qdrant-babs | qdrant/qdrant:latest | 6333, 6334 | Running. Procedural Memory collection (5 seed entries, re-embedded). |
 | babs-dashboard | docker-dashboard (custom) | 3000 | Running. Primary interface. http://100.109.213.22:3000 |
+| comfyui-babs | comfyui-spark:latest | 8188 | Running. NVFP4 active. 70GB memory cap. |
+| babs-jupyter | custom | -- | Running. |
 | open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Stopped (replaced by dashboard). |
 
 ### Super Model Investigation (2026-03-15 Updated)
@@ -112,9 +119,15 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 
 **Rationale:** Enhanced the dashboard to provide full parity with Open WebUI features (file uploads, artifacts, transparency) while enabling OpenRouter fallback. Model downloading logic has been deferred to native background workers in Phase 8.
 
-**Next: Phase 8** (Workers and code execution).
+**Phase 8 - Supervisor Hardening & Tool Expansion (COMPLETE ✅ 2026-03-15):**
+1. ✅ Bug fixes: workers.py logger import, blocking OpenRouter call (run_in_executor)
+2. ✅ Episodic memory retrieval wired in -- past conversation summaries now injected alongside procedural memory
+3. ✅ Babs identity -- Oracle archetype (Barbara Gordon) system prompts in both workers, grounded in design philosophy
+4. ✅ New tools: read_file (Tier 0), write_file (Tier 2), shell (Tier 2)
+5. ✅ Persistent thread storage -- SQLite at ~/babs-data/threads.db, conversations survive supervisor restarts
+6. ✅ Reflection loop model name fix -- dreaming now works correctly with Nano
 
-**Latest handoff:** HANDOFF-2026-03-13-CURRENT.md
+**Latest handoff:** HANDOFF-2026-03-15-CURRENT.md
 
 ## Key Filesystem Paths
 
@@ -125,6 +138,7 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 | `~/babs-data/models/nemotron3-super-nvfp4/` | Super weights (75GB). Parked until SM121 fix. |
 | `~/babs-data/models/nemotron3-nano-nvfp4/` | Nano weights (active). |
 | `~/babs-data/cache/` | vLLM compilation cache + build artifacts. |
+| `~/babs-data/threads.db` | Persistent conversation thread storage (SQLite). |
 | `~/babs-data/open-webui/` | Open WebUI persistent data. |
 | `~/babs/scripts/super_v3_reasoning_parser.py` | Reasoning parser for Super model (not used with Nano). |
 | `~/.local/bin/hf` | HuggingFace CLI. |
