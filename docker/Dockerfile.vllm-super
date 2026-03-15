@@ -1,38 +1,10 @@
-FROM nvcr.io/nvidia/vllm:26.02-py3
+FROM avarok/dgx-vllm-nvfp4-kernel:v23
 
-# Unset NVIDIA's pip constraint
-ENV PIP_CONSTRAINT=""
+# Install vLLM 0.17.0rc0+cu130 aarch64 wheel (CUDA 13, ARM64, commit 097eb544)
+# This is the cu130-native build that supports MIXED_PRECISION (Nemotron 3 Super)
+RUN pip install -U "https://wheels.vllm.ai/097eb544e9a22810c9b7a59e586b61627b308362/vllm-0.17.0rc0%2Bcu130-cp38-abi3-manylinux_2_35_aarch64.whl"
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    cmake \
-    && rm -rf /var/lib/apt/lists/*
-# Clone and build vLLM from source for CUDA 13.1 compatibility
-WORKDIR /tmp
-RUN git clone https://github.com/vllm-project/vllm.git --depth=1
-WORKDIR /tmp/vllm
-
-# Use latest main branch (March 2026) which should have CUDA 13.1 support
-# Check out a known stable version for CUDA 13.1 compatibility
-RUN git fetch --tags && \
-    git checkout tags/v0.14.0  # Known stable version
-
-# First install PyTorch with CUDA 13.1 support
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu131
-# Install vLLM in development mode
-RUN pip install -e . \
-    --no-cache-dir \
-    --extra-index-url https://pypi.nvidia.com
-
-# Verify vLLM installation and CUDA version compatibility
-RUN python -c "import vllm; print(f'vLLM version: {vllm.__version__}')" && \
-    python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA version: {torch.version.cuda}')"
-# Copy the custom reasoning parser
-COPY super_v3_reasoning_parser.py /opt/super_v3_reasoning_parser.py
-
-# Clean up build artifacts
-WORKDIR /
-RUN rm -rf /tmp/vllm
-
+# Pin flashinfer back to 0.6.3 -- the v23 base has precompiled SM_121a kernels for 0.6.3.
+# 0.6.4 (pulled in by vLLM above) tries to JIT-compile SM_121a kernels at startup which
+# OOM-kills nvcc on top of the 70GB model weights.
+RUN pip install --no-deps "flashinfer-python==0.6.3"

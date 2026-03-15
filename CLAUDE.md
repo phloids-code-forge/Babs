@@ -10,7 +10,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - **Auxiliary node (G14):** ASUS ROG Zephyrus G14, headless Ubuntu 24.04 LTS Server, RTX 3060 Mobile 6GB, 40GB RAM, 1TB SSD. At `ssh g14` (Tailscale 100.101.118.78). OS and networking complete, service deployment pending.
 - **Dev machine (PX13):** Dave's workstation. Windows. Connects via VS Code Remote SSH over Tailscale.
 
-## Current State (2026-03-13 Updated 14:40 CDT)
+## Current State (2026-03-15 Updated)
 
 ### What's Running
 
@@ -23,34 +23,36 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 | babs-dashboard | docker-dashboard (custom) | 3000 | Running. Primary interface. http://100.109.213.22:3000 |
 | open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Stopped (replaced by dashboard). |
 
-### Super Model Investigation (2026-03-13)
+### Super Model Investigation (2026-03-15 Updated)
 
-**Finding:** Nemotron 3 Super 120B-A12B NVFP4 cannot run on current vLLM versions.
+**Finding:** Nemotron 3 Super 120B-A12B NVFP4 runs on vLLM 0.17.0rc0+cu130 but at ~1 tok/s (unusable).
 
-**Root cause:** The model uses `MIXED_PRECISION` quantization (FP8 for attention, NVFP4 for MoE experts). vLLM v26.02 (NVIDIA official container) only supports homogeneous quantization: `FP8`, `FP8_PER_CHANNEL_PER_TOKEN`, `FP8_PB_WO`, or `NVFP4`. Mixed precision is rejected during model config validation.
+**Root cause summary:** Two-version trap:
+- vLLM 0.16.x (avarok v23 base): Knows SM_121 is FP4-capable (avarok patches), but rejects MIXED_PRECISION quant during model config validation.
+- vLLM 0.17.0rc0 (upstream): Accepts MIXED_PRECISION, model loads and serves, but treats SM_121 as FP4-incapable -- falls back to Marlin software-emulated FP4 at ~1 tok/s.
 
-**Driver status:** Already running 590.48.01 (latest stable). Not a driver issue.
+**What was built (2026-03-15):**
+- `docker/Dockerfile.vllm-super`: avarok/dgx-vllm-nvfp4-kernel:v23 base + vLLM 0.17.0rc0+cu130 aarch64 wheel + flashinfer pinned to 0.6.3
+- Image tag: `vllm-super` (built and cached on Spark)
+- The image works -- model loads 17 shards (69.5 GiB), serves requests correctly -- just slowly.
+- FlashInfer TRTLLM/CUTLASS backends fail at JIT compile time on SM_121a with 0.17.0rc0.
+- Marlin backend works but is software FP4 emulation.
 
-**Attempted fixes:**
-- NVIDIA official container (nvcr.io/nvidia/vllm:26.02-py3): Fails with quant_method validation error
-- Removing `--quantization` flag: Still fails (reads MIXED_PRECISION from hf_quant_config.json)
+**What unlocks this:**
+- avarok v24+ image shipping vLLM 0.17.x with SM_121 FP4 kernel patches applied. v23 is still latest as of 2026-03-15.
+- OR upstream vLLM merging the SM_121 FP4 capability detection that avarok has in their custom builds.
 
-**Options going forward:**
-1. Download FP8-only variant (nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8, ~100GB)
-2. Wait for vLLM to support MIXED_PRECISION quantization
-3. Try community vLLM builds with patches (avarok/vllm-dgx-spark with Super)
-4. Stay on Nano (30B, stable, 65+ tok/s)
+**Decision:** Parked again. Nano is the active model. Do not delete `vllm-super` image -- it's the working base for when avarok ships v24.
 
-**Decision:** Deferred Super upgrade. Focus on Phase 7.5 (model picker with OpenRouter) to enable trying larger models without local download commitment.
+**Super weights:** `~/babs-data/models/nemotron3-super-nvfp4/` (75GB). Keep.
 
-**Super weights:** Still at `~/babs-data/models/nemotron3-super-nvfp4/` (75GB). Do not delete until FP8 variant tested or vLLM adds MIXED_PRECISION support.
+### Dev Environment (2026-03-14 Updated)
 
-### Dev Environment (2026-03-12)
-
-- **Claude Code:** Installed and working. You are it.
+- **Claude Code:** Installed and working. You are it. Has passwordless sudo (`/etc/sudoers.d/dave-nopasswd`).
 - **VS Code Remote SSH:** Connected to this repo via Tailscale. Antigravity also connected.
 - **Continue extension:** Configured in VS Code, pointing at vLLM via Tailscale IP.
 - **Hostname:** Changed from `edgexpert-4272` to `spark`.
+- **Samba share:** `smbd` running on Spark. `~/babs-data` shared as `\\100.109.213.22\babs-data`. Mapped as `Z:` on PX13. Auth required (user: dave). Bound to all interfaces (Tailscale is the security boundary). Config: `/etc/samba/smb.conf`, setup script: `scripts/samba-setup.sh`.
 
 ### Bootstrap Progress
 
