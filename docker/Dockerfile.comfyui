@@ -1,0 +1,83 @@
+# ComfyUI for DGX Spark (ARM64, SM_121, CUDA 13.0)
+# Base: CUDA 13.0 devel image - required for SM_121 (GB10 Grace Blackwell).
+# CUDA 12.8 only supports up to SM_120; GB10 is SM_121.
+# "devel" variant includes nvcc for compiling SageAttention.
+FROM nvidia/cuda:13.0.2-devel-ubuntu24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG COMFYUI_REF=master
+ARG SAGEATTN_REF=main
+
+ENV PYTHONUNBUFFERED=1
+ENV COMFYUI_DIR=/opt/comfyui
+ENV VENV=/opt/venv
+ENV PATH="$VENV/bin:$PATH"
+# SM_121 for GB10 Grace Blackwell
+ENV TORCH_CUDA_ARCH_LIST="12.1"
+ENV CUDA_HOME=/usr/local/cuda
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget curl ca-certificates \
+    python3 python3-pip python3-venv python3-dev \
+    build-essential ninja-build cmake pkg-config \
+    libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Isolated venv
+RUN python3 -m venv $VENV
+RUN pip install -U pip setuptools wheel uv
+
+# PyTorch cu130 wheels (ARM64, CUDA 13.0) - includes torchvision
+RUN pip install --index-url https://download.pytorch.org/whl/cu130 \
+    torch torchvision
+
+# Clone ComfyUI
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git ${COMFYUI_DIR}
+WORKDIR ${COMFYUI_DIR}
+RUN pip install -r requirements.txt
+
+# SageAttention - compiled for SM_121
+RUN pip install --no-build-isolation \
+    "git+https://github.com/thu-ml/SageAttention@${SAGEATTN_REF}" || true
+
+# Custom nodes
+RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git \
+        ${COMFYUI_DIR}/custom_nodes/ComfyUI-Manager && \
+    git clone https://github.com/Acly/comfyui-tooling-nodes.git \
+        ${COMFYUI_DIR}/custom_nodes/comfyui-tooling-nodes && \
+    git clone https://github.com/Acly/comfyui-inpaint-nodes.git \
+        ${COMFYUI_DIR}/custom_nodes/comfyui-inpaint-nodes && \
+    git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git \
+        ${COMFYUI_DIR}/custom_nodes/comfyui_controlnet_aux && \
+    git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git \
+        ${COMFYUI_DIR}/custom_nodes/ComfyUI_IPAdapter_plus && \
+    git clone https://github.com/kijai/ComfyUI-KJNodes.git \
+        ${COMFYUI_DIR}/custom_nodes/ComfyUI-KJNodes && \
+    git clone https://github.com/city96/ComfyUI-GGUF.git \
+        ${COMFYUI_DIR}/custom_nodes/ComfyUI-GGUF && \
+    git clone https://github.com/nunchaku-tech/ComfyUI-nunchaku.git \
+        ${COMFYUI_DIR}/custom_nodes/ComfyUI-nunchaku
+
+# Custom node deps
+RUN pip install \
+    insightface \
+    gguf \
+    gitpython \
+    onnxruntime \
+    opencv-python-headless \
+    scikit-image \
+    mediapipe \
+    && cd ${COMFYUI_DIR}/custom_nodes/comfyui_controlnet_aux \
+    && pip install -r requirements.txt 2>/dev/null || true
+
+# Extra model paths config (mounted at runtime)
+COPY config/comfyui-extra-paths.yaml ${COMFYUI_DIR}/extra_model_paths.yaml
+
+EXPOSE 8188
+
+CMD ["python", "main.py", \
+     "--listen", "0.0.0.0", \
+     "--port", "8188", \
+     "--extra-model-paths-config", "/opt/comfyui/extra_model_paths.yaml"]
