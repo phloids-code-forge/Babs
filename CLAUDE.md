@@ -160,7 +160,9 @@ openshell inference set --no-verify --provider vllm-local --model nemotron3-nano
 sudo systemctl restart openclaw-dashboard-tunnel
 ```
 
-**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-4.md
+21. ✅ babs-seed.sh: auto-seeds sandbox on every restart. Deployed at /usr/local/bin/babs-seed.sh, called by openclaw-dashboard-start.sh. No more manual re-seeding. Persistent secrets: /etc/babs-reseed.env (GITHUB_TOKEN), /etc/babs-openclaw.json (openclaw.json with API keys). Both mode 600, owned by dave.
+
+**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-5.md
 
 ## Key Filesystem Paths
 
