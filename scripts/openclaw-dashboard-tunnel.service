@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenClaw gateway + dashboard tunnel (sandbox -> Tailscale :18789)
+After=network.target
+Wants=network.target
+
+[Service]
+User=dave
+ExecStart=/usr/local/bin/openclaw-dashboard-start.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
