@@ -10,7 +10,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - **Auxiliary node (G14):** ASUS ROG Zephyrus G14, headless Ubuntu 24.04 LTS Server, RTX 3060 Mobile 6GB, 40GB RAM, 1TB SSD. At `ssh g14` (Tailscale 100.101.118.78). OS and networking complete, service deployment pending.
 - **Dev machine (PX13):** Dave's workstation. Windows. Connects via VS Code Remote SSH over Tailscale.
 
-## Current State (2026-03-17 Updated)
+## Current State (2026-03-17 Updated, session 2)
 
 ### System Stability
 
@@ -30,6 +30,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 | babs-jupyter | custom | -- | Running. |
 | openshell-gateway | k3s-in-Docker (managed by openshell) | -- | Running. NemoClaw gateway. Manages inference routing and sandbox policy enforcement. |
 | nemoclaw-sandbox | openshell/sandbox-from:* | -- | Running. OpenClaw agent runtime with NemoClaw security plugin. Inference -> vllm-local (:8000). |
+| openclaw-dashboard-tunnel | systemd (openclaw-dashboard-start.sh) | 18789 | Running. SSH port forward: Tailscale:18789 -> sandbox:18789. Dashboard at http://100.109.213.22:18789/ |
 | open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Stopped (replaced by dashboard). |
 
 ### Super Model Investigation (2026-03-17 Updated)
@@ -132,9 +133,16 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 6. ✅ vllm-local provider configured (auto-detected our vllm-babs Docker container on :8000)
 7. ✅ NemoClaw sandbox built and running (openclaw@2026.3.11 + NemoClaw plugin inside)
 8. ✅ vLLM endpoint verified: inference routes OpenShell -> host.openshell.internal:8000 -> vllm-babs. Confirmed via vLLM access logs.
-9. ⏸ Babs supervisor/memory/dashboard integration with OpenClaw agent loop (next)
+9. ✅ Babs workspace seeded: SOUL.md, IDENTITY.md, USER.md, TOOLS.md uploaded to /sandbox/.openclaw/workspace/. Source in ~/babs/openclaw-workspace/.
+10. ✅ OpenClaw web dashboard accessible via Tailscale at http://100.109.213.22:18789/ (systemd service: openclaw-dashboard-tunnel). Script: /usr/local/bin/openclaw-dashboard-start.sh.
+11. ✅ Gateway CORS fixed: added http://100.109.213.22:18789 to gateway.controlUi.allowedOrigins in /sandbox/.openclaw/openclaw.json.
+12. ✅ OpenRouter provider configured in OpenClaw: Claude Sonnet 4.6, Opus 4.6, Gemini 2.5 Pro, Llama 3.3 70B, Nemotron 4 340B. API key stored in sandbox openclaw.json (not committed to git).
+13. ✅ vllm-local added to OpenClaw model picker: Nemotron 3 Nano 30B (local, 65 tok/s, free).
+14. ⏸ Babs supervisor/memory/dashboard integration with OpenClaw agent loop (future)
 
-**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW.md
+**OpenClaw primary interface:** Use http://100.109.213.22:18789/ for Babs conversations. Workspace files in ~/babs/openclaw-workspace/ (version controlled). To re-seed after sandbox rebuild: `ssh openshell-nemoclaw "cat > /sandbox/.openclaw/workspace/SOUL.md" < ~/babs/openclaw-workspace/SOUL.md` (repeat per file).
+
+**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-2.md
 
 ## Key Filesystem Paths
 
@@ -153,6 +161,8 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 | `~/.nemoclaw/credentials.json` | NemoClaw credentials (NVIDIA_API_KEY, mode 600). |
 | `~/.openclaw/` | OpenClaw agent config (host-side; also present inside sandbox at /sandbox/.openclaw). |
 | `~/.ssh/config` | Contains openshell-nemoclaw SSH entry for sandbox access. |
+| `/sandbox/.openclaw/openclaw.json` | OpenClaw main config inside sandbox: providers, gateway CORS, OpenRouter key. Template (redacted) at ~/babs/openclaw-workspace/openclaw.template.json. |
+| `~/babs/openclaw-workspace/` | Babs workspace seed files (version controlled). Deployed to /sandbox/.openclaw/workspace/ via SSH. |
 
 ## Architecture Documents
 
