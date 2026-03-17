@@ -10,7 +10,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - **Auxiliary node (G14):** ASUS ROG Zephyrus G14, headless Ubuntu 24.04 LTS Server, RTX 3060 Mobile 6GB, 40GB RAM, 1TB SSD. At `ssh g14` (Tailscale 100.101.118.78). OS and networking complete, service deployment pending.
 - **Dev machine (PX13):** Dave's workstation. Windows. Connects via VS Code Remote SSH over Tailscale.
 
-## Current State (2026-03-17 Updated, session 2)
+## Current State (2026-03-17 Updated, session 3)
 
 ### System Stability
 
@@ -138,11 +138,18 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 11. ✅ Gateway CORS fixed: added http://100.109.213.22:18789 to gateway.controlUi.allowedOrigins in /sandbox/.openclaw/openclaw.json.
 12. ✅ OpenRouter provider configured in OpenClaw: Claude Sonnet 4.6, Opus 4.6, Gemini 2.5 Pro, Llama 3.3 70B, Nemotron 4 340B. API key stored in sandbox openclaw.json (not committed to git).
 13. ✅ vllm-local added to OpenClaw model picker: Nemotron 3 Nano 30B (local, 65 tok/s, free).
-14. ⏸ Babs supervisor/memory/dashboard integration with OpenClaw agent loop (future)
+14. ✅ Babs personality rewrite: SOUL.md, IDENTITY.md, USER.md updated -- personality always on, content creator duo context added, "no filler" clarified as AI catchphrases not personality.
+15. ✅ Babs Bridge built: ~/babs/src/bridge/babs-bridge.py, systemd service babs-bridge on port 7222, token in /etc/babs-bridge.env. Awaiting sandbox rebuild to activate (sandbox created in Block mode; network policy addition requires restart).
+16. ✅ babs-sync.sh: pushes CLAUDE.md + docs/ + src/ into /sandbox/.openclaw/workspace/babs/ via tar-over-SSH. Run: bash ~/babs/scripts/babs-sync.sh
+17. ✅ Directory structure: ~/projects/ (dev work, CONTEXT.md convention), ~/lab/ (experiments, Babs stays out by default).
+18. ✅ SSH keypair: /sandbox/.ssh/spark_id (ed25519, babs@sandbox). Public key in ~/.ssh/authorized_keys on Spark. Ready for when SSH binary is available in sandbox.
+19. ⏸ Sandbox rebuild needed: to activate babs-bridge network policy (Block → Proxy mode). Plan before rebuild: run babs-sync.sh, then re-seed workspace files after rebuild.
+20. ⏸ Model switching UX: needs easy CLI/script interface for switching between local Nano, OpenRouter models, cloud Super. Document before next session.
 
-**OpenClaw primary interface:** Use http://100.109.213.22:18789/ for Babs conversations. Workspace files in ~/babs/openclaw-workspace/ (version controlled). To re-seed after sandbox rebuild: `ssh openshell-nemoclaw "cat > /sandbox/.openclaw/workspace/SOUL.md" < ~/babs/openclaw-workspace/SOUL.md` (repeat per file).
+**OpenClaw primary interface:** Use http://100.109.213.22:18789/#token=4a4569fb23163c74cd4a4124e02e467fd844141a2708d67b for Babs conversations.
+**Re-seed after sandbox rebuild:** `for f in SOUL IDENTITY USER TOOLS; do ssh openshell-nemoclaw "cat > /sandbox/.openclaw/workspace/${f}.md" < ~/babs/openclaw-workspace/${f}.md; done`
 
-**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-2.md
+**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-3.md
 
 ## Key Filesystem Paths
 
@@ -163,6 +170,11 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 | `~/.ssh/config` | Contains openshell-nemoclaw SSH entry for sandbox access. |
 | `/sandbox/.openclaw/openclaw.json` | OpenClaw main config inside sandbox: providers, gateway CORS, OpenRouter key. Template (redacted) at ~/babs/openclaw-workspace/openclaw.template.json. |
 | `~/babs/openclaw-workspace/` | Babs workspace seed files (version controlled). Deployed to /sandbox/.openclaw/workspace/ via SSH. |
+| `~/babs/src/bridge/babs-bridge.py` | HTTP command relay (sandbox -> Spark). Port 7222, token in /etc/babs-bridge.env. Awaiting sandbox rebuild. |
+| `~/projects/` | Dev projects. CONTEXT.md convention: no CONTEXT.md = read-only for Babs. |
+| `~/lab/` | Personal experiments. Babs stays out by default. |
+| `/sandbox/.openclaw/workspace/babs/` | Synced copy of babs docs inside sandbox. Refresh: bash ~/babs/scripts/babs-sync.sh |
+| `/sandbox/.ssh/spark_id` | Ed25519 keypair for sandbox -> Spark SSH (when SSH binary available). |
 
 ## Architecture Documents
 

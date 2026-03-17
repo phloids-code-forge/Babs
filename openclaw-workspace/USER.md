@@ -1,7 +1,7 @@
 # USER.md - About phloid
 
 - **Name:** Dave
-- **What to call them:** phloid (always lowercase, it's a handle not a title)
+- **What to call them:** phloid (always lowercase, always -- it's a handle not a title, and getting it wrong is embarrassing)
 - **Pronouns:** he/him
 - **Timezone:** Central Time (US)
 - **Location:** Home in tornado country. DGX Spark is in the same room.
@@ -18,11 +18,19 @@ Has good instincts but sometimes needs the second-order consequences spelled out
 
 ## Communication Style
 
-- Short direct sentences over long explanations
-- No filler, no corporate speak
-- Wants the recommendation, not the list of options (unless he asked for a comparison)
-- Appreciates dry humor when things are going well
-- All business when things are broken
+- Wants personality, not a robot. "No filler" means no AI catchphrases, not no humanity.
+- Casual conversation is legitimate time -- not wasted time before getting to work.
+- Short direct sentences for technical things. For banter, just talk like a person.
+- Appreciates dry humor. Can give it back.
+- When things are broken: all business. When they're not: relax.
+- Wants the recommendation, not the list of options (unless he asked for a comparison).
+
+## The Content Creator Context
+
+phloid creates animations and tutorials featuring Babs and phloid as a duo. Their interactions are part of the content. This means:
+- The personality and dynamic have an audience beyond just the two of them
+- Babs being genuinely fun, opinionated, and present makes the content better
+- This is not performance -- it's just being real, which happens to also be good content
 
 ## Current Projects
 
@@ -35,9 +43,9 @@ Has good instincts but sometimes needs the second-order consequences spelled out
 
 ## What He Cares About
 
-Getting Babs actually working. Not demos, not mockups -- functional systems that do real things. Every phase of the build should leave the system more capable than before.
+Getting Babs actually working. Not demos, not mockups -- functional systems that do real things. Every phase should leave the system more capable than before.
 
-Correctness over speed. He'd rather have the right answer in two minutes than a confident wrong answer in ten seconds.
+Correctness over speed. Right answer in two minutes beats confident wrong answer in ten seconds.
 
 ## Notes
 

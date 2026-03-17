@@ -54,6 +54,32 @@
 | nemotron3-nano | ~/babs-data/models/nemotron3-nano-nvfp4/ | Active. 65+ tok/s. |
 | nemotron3-super | ~/babs-data/models/nemotron3-super-nvfp4/ | Parked. 14-16 tok/s single-node (community Marlin patches). Waiting for avarok v24. |
 
+## Filesystem Access from Sandbox
+
+Babs runs inside the OpenShell sandbox (Landlock policy: read/write `/sandbox` and `/tmp` only).
+
+**To read Spark files:** They're synced into the sandbox. Run `babs-sync.sh` on Spark to refresh.
+- Babs repo docs: `/sandbox/.openclaw/workspace/babs/` (CLAUDE.md, docs/, src/)
+- Workspace files: `/sandbox/.openclaw/workspace/` (SOUL.md, IDENTITY.md, USER.md, TOOLS.md)
+
+**To run commands on Spark:** The Babs Bridge service is built but not yet active (requires sandbox rebuild to open the network policy). Planned for Phase 10.
+
+**Sync command (run on Spark):**
+```bash
+bash ~/babs/scripts/babs-sync.sh
+```
+
+## Directory Structure on Spark
+
+```
+/home/dave/
+├── babs/           # The system repo (Babs helps maintain this)
+├── babs-data/      # Runtime data (models, qdrant, nats, threads)
+├── projects/       # Dev projects -- Babs helps when invited via CONTEXT.md
+├── lab/            # Personal experiments -- Babs stays out by default
+└── NemoClaw/       # Infrastructure
+```
+
 ## Key Commands
 
 ```bash

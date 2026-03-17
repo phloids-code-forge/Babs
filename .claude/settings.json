@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker search:*)",
+      "Bash(docker run:*)",
+      "Bash(curl -s https://wheels.vllm.ai/097eb544e9a22810c9b7a59e586b61627b308362/cu130/)",
+      "Bash(curl -s https://wheels.vllm.ai/097eb544e9a22810c9b7a59e586b61627b308362/cu130/vllm/)",
+      "Bash(sudo rm:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/v1/models)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d[''''data''''][0][''''id'''']\\)\")",
+      "Bash(time curl:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d[''''choices''''][0][''''text'''']\\); print\\(''''tok/s:'''', d[''''usage''''][''''completion_tokens''''] / d[''''usage''''][''''total_tokens''''] * 100\\)\")",
+      "Bash(curl -s http://localhost:8000/v1/completions -H \"Content-Type: application/json\" -d '{\"\"\"\"model\"\"\"\":\"\"\"\"nemotron3-super\"\"\"\",\"\"\"\"prompt\"\"\"\":\"\"\"\"The capital of France is\"\"\"\",\"\"\"\"max_tokens\"\"\"\":20,\"\"\"\"temperature\"\"\"\":0}')",
+      "Bash(sudo apt-get:*)",
+      "Bash(ls ~/babs/docker/docker-compose*.yml)",
+      "Read(//home/dave/babs-data/**)",
+      "Read(//home/dave/.ssh/**)",
+      "Bash(ssh -T git@github.com)",
+      "WebFetch(domain:www.nvidia.com)",
+      "Bash(gh api:*)",
+      "Bash(docker --version)",
+      "Bash(openshell --version)",
+      "Read(//home/dave/babs/**)",
+      "Read(//etc/docker/**)",
+      "Bash(sudo curl:*)",
+      "Bash(sudo chmod:*)",
+      "Bash(curl -s https://api.github.com/repos/NVIDIA/OpenShell/releases/latest)",
+      "Bash(python3 -c \"import json,sys; r=json.load\\(sys.stdin\\); print\\(r.get\\(''''tag_name'''',''''no tag''''\\)\\); [print\\(a[''''browser_download_url'''']\\) for a in r.get\\(''''assets'''',[]\\)]\")",
+      "Bash(pip3 install:*)",
+      "Bash(sudo python3 -c \":*)",
+      "Bash(curl -fsSL \"https://github.com/NVIDIA/OpenShell/releases/download/v0.0.6/openshell-aarch64-unknown-linux-musl.tar.gz\")",
+      "Bash(sudo tar:*)",
+      "Read(//home/dave/NemoClaw/**)",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\(p.get\\(''''name''''\\), p.get\\(''''version''''\\)\\)\")",
+      "Bash(sudo npm:*)",
+      "Bash(npm --version)",
+      "Read(//usr/local/bin/**)"
+    ],
+    "additionalDirectories": [
+      "/home/dave/babs-data/cache/flashinfer/0.6.4"
+    ]
+  }
+}
