@@ -71,6 +71,24 @@
             "contextWindow": 4096,
             "maxTokens": 4096,
             "cost": {"input": 4.20, "output": 4.20, "cacheRead": 0, "cacheWrite": 0}
+          },
+          {
+            "id": "deepseek/deepseek-r1",
+            "name": "DeepSeek R1 (reasoning)",
+            "reasoning": true,
+            "input": ["text"],
+            "contextWindow": 128000,
+            "maxTokens": 32768,
+            "cost": {"input": 0.55, "output": 2.19, "cacheRead": 0, "cacheWrite": 0}
+          },
+          {
+            "id": "deepseek/deepseek-chat",
+            "name": "DeepSeek V3 Chat (fast)",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 128000,
+            "maxTokens": 32768,
+            "cost": {"input": 0.27, "output": 1.10, "cacheRead": 0, "cacheWrite": 0}
           }
         ]
       },

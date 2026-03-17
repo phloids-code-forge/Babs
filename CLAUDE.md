@@ -121,7 +121,7 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 5. ✅ Persistent thread storage -- SQLite at ~/babs-data/threads.db, conversations survive supervisor restarts
 6. ✅ Reflection loop model name fix -- dreaming now works correctly with Nano
 
-**Phase 9 - NemoClaw/OpenClaw Integration (IN PROGRESS 2026-03-17):**
+**Phase 9 - NemoClaw/OpenClaw Integration (COMPLETE ✅ 2026-03-17):**
 
 **Context:** NVIDIA announced OpenClaw and NemoClaw at GTC 2026 (2026-03-16). OpenClaw is the community open-source agent platform. NemoClaw is NVIDIA's security layer on top: OpenShell (Landlock + seccomp + netns sandbox), a privacy router (local/cloud inference switching), and Nemotron model integration. Decision: adopt OpenClaw/NemoClaw as the agent runtime and wrap Babs integration around it, following the official DGX Spark playbook. Rationale: community troubleshooting resources, standard configuration, career familiarity.
 
@@ -133,23 +133,34 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 6. ✅ vllm-local provider configured (auto-detected our vllm-babs Docker container on :8000)
 7. ✅ NemoClaw sandbox built and running (openclaw@2026.3.11 + NemoClaw plugin inside)
 8. ✅ vLLM endpoint verified: inference routes OpenShell -> host.openshell.internal:8000 -> vllm-babs. Confirmed via vLLM access logs.
-9. ✅ Babs workspace seeded: SOUL.md, IDENTITY.md, USER.md, TOOLS.md uploaded to /sandbox/.openclaw/workspace/. Source in ~/babs/openclaw-workspace/.
+9. ✅ Babs workspace seeded: SOUL.md, IDENTITY.md, USER.md, TOOLS.md in /sandbox/.openclaw/workspace/. Source in ~/babs/openclaw-workspace/.
 10. ✅ OpenClaw web dashboard accessible via Tailscale at http://100.109.213.22:18789/ (systemd service: openclaw-dashboard-tunnel). Script: /usr/local/bin/openclaw-dashboard-start.sh.
 11. ✅ Gateway CORS fixed: added http://100.109.213.22:18789 to gateway.controlUi.allowedOrigins in /sandbox/.openclaw/openclaw.json.
-12. ✅ OpenRouter provider configured in OpenClaw: Claude Sonnet 4.6, Opus 4.6, Gemini 2.5 Pro, Llama 3.3 70B, Nemotron 4 340B. API key stored in sandbox openclaw.json (not committed to git).
+12. ✅ OpenRouter provider configured in OpenClaw: Claude Sonnet 4.6, Opus 4.6, Gemini 2.5 Pro, Llama 3.3 70B, Nemotron 4 340B, DeepSeek R1, DeepSeek V3 Chat. API key stored in sandbox openclaw.json (not committed to git).
 13. ✅ vllm-local added to OpenClaw model picker: Nemotron 3 Nano 30B (local, 65 tok/s, free).
 14. ✅ Babs personality rewrite: SOUL.md, IDENTITY.md, USER.md updated -- personality always on, content creator duo context added, "no filler" clarified as AI catchphrases not personality.
-15. ✅ Babs Bridge built: ~/babs/src/bridge/babs-bridge.py, systemd service babs-bridge on port 7222, token in /etc/babs-bridge.env. Awaiting sandbox rebuild to activate (sandbox created in Block mode; network policy addition requires restart).
-16. ✅ babs-sync.sh: pushes CLAUDE.md + docs/ + src/ into /sandbox/.openclaw/workspace/babs/ via tar-over-SSH. Run: bash ~/babs/scripts/babs-sync.sh
+15. ✅ Babs Bridge built: ~/babs/src/bridge/babs-bridge.py, HTTPS on port 7222, cert at /etc/babs-bridge-tls/, token in /etc/babs-bridge.env. NOT reachable from sandbox -- OpenShell 0.0.6 proxy has SSRF protection blocking all sandbox→private-IP connections. Parked until OpenShell adds host routing support.
+16. ✅ Sandbox rebuilt in Proxy mode (OPENSHELL_SANDBOX_POLICY env var). Network policies active: babs_bridge, openrouter, nvidia, github, clawhub, openclaw_api, npm_registry, telegram. Policy at /tmp/nemoclaw-policy.yaml (re-apply after rebuild: openshell policy set nemoclaw --policy /tmp/nemoclaw-policy.yaml --wait).
 17. ✅ Directory structure: ~/projects/ (dev work, CONTEXT.md convention), ~/lab/ (experiments, Babs stays out by default).
-18. ✅ SSH keypair: /sandbox/.ssh/spark_id (ed25519, babs@sandbox). Public key in ~/.ssh/authorized_keys on Spark. Ready for when SSH binary is available in sandbox.
-19. ⏸ Sandbox rebuild needed: to activate babs-bridge network policy (Block → Proxy mode). Plan before rebuild: run babs-sync.sh, then re-seed workspace files after rebuild.
-20. ⏸ Model switching UX: needs easy CLI/script interface for switching between local Nano, OpenRouter models, cloud Super. Document before next session.
+18. ✅ Model switcher: ~/babs/scripts/babs-model.sh. Subcommands: nano, sonnet, opus, deepseek, deepseek-r1, gemini, llama, list. Alias: babs-model. Updates /sandbox/.openclaw/openclaw.json + openshell inference routing.
+19. ✅ Babs git access: /sandbox/babs cloned from github.com/phloids-code-forge/Babs.git. Credentials in /sandbox/.git-credentials (600). Babs can read, edit, commit, push directly. This is the primary way she accesses and modifies the repo.
+20. ✅ babs-sync.sh: deprecated -- Babs uses git directly now. Script kept for reference.
 
 **OpenClaw primary interface:** Use http://100.109.213.22:18789/#token=4a4569fb23163c74cd4a4124e02e467fd844141a2708d67b for Babs conversations.
-**Re-seed after sandbox rebuild:** `for f in SOUL IDENTITY USER TOOLS; do ssh openshell-nemoclaw "cat > /sandbox/.openclaw/workspace/${f}.md" < ~/babs/openclaw-workspace/${f}.md; done`
 
-**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-3.md
+**Re-seed after sandbox rebuild (pod restarts wipe /sandbox):**
+```bash
+ssh openshell-nemoclaw "mkdir -p /sandbox/.openclaw/workspace /sandbox/.ssh"
+ssh openshell-nemoclaw "cat > /sandbox/.openclaw/openclaw.json" < /tmp/openclaw-post-rebuild.json
+for f in SOUL IDENTITY USER TOOLS; do ssh openshell-nemoclaw "cat > /sandbox/.openclaw/workspace/${f}.md" < ~/babs/openclaw-workspace/${f}.md; done
+ssh openshell-nemoclaw "cat > /sandbox/.git-credentials && chmod 600 /sandbox/.git-credentials" <<< 'https://TOKEN@github.com'
+ssh openshell-nemoclaw "cd /sandbox && git clone https://github.com/phloids-code-forge/Babs.git babs"
+ssh openshell-nemoclaw "git config --global credential.helper store && git config --global user.name 'Babs' && git config --global user.email 'babs@openclaw'"
+openshell inference set --no-verify --provider vllm-local --model nemotron3-nano
+sudo systemctl restart openclaw-dashboard-tunnel
+```
+
+**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW-4.md
 
 ## Key Filesystem Paths
 
@@ -169,12 +180,17 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 | `~/.openclaw/` | OpenClaw agent config (host-side; also present inside sandbox at /sandbox/.openclaw). |
 | `~/.ssh/config` | Contains openshell-nemoclaw SSH entry for sandbox access. |
 | `/sandbox/.openclaw/openclaw.json` | OpenClaw main config inside sandbox: providers, gateway CORS, OpenRouter key. Template (redacted) at ~/babs/openclaw-workspace/openclaw.template.json. |
-| `~/babs/openclaw-workspace/` | Babs workspace seed files (version controlled). Deployed to /sandbox/.openclaw/workspace/ via SSH. |
-| `~/babs/src/bridge/babs-bridge.py` | HTTP command relay (sandbox -> Spark). Port 7222, token in /etc/babs-bridge.env. Awaiting sandbox rebuild. |
+| `~/babs/openclaw-workspace/` | Babs workspace seed files (version controlled). Deployed to /sandbox/.openclaw/workspace/ via SSH after rebuild. |
+| `~/babs/src/bridge/babs-bridge.py` | HTTPS command relay (sandbox -> Spark). Port 7222, cert /etc/babs-bridge-tls/, token /etc/babs-bridge.env. Parked: OpenShell SSRF blocks sandbox->host. |
+| `~/babs/scripts/babs-model.sh` | Model switcher. `babs-model <nano|sonnet|opus|deepseek|deepseek-r1|gemini|llama|list>` |
+| `/tmp/nemoclaw-policy.yaml` | Active sandbox network policy. Re-apply after rebuild: `openshell policy set nemoclaw --policy /tmp/nemoclaw-policy.yaml --wait` |
+| `/tmp/openclaw-post-rebuild.json` | openclaw.json with real keys. Use to restore after sandbox pod restart. |
 | `~/projects/` | Dev projects. CONTEXT.md convention: no CONTEXT.md = read-only for Babs. |
 | `~/lab/` | Personal experiments. Babs stays out by default. |
-| `/sandbox/.openclaw/workspace/babs/` | Synced copy of babs docs inside sandbox. Refresh: bash ~/babs/scripts/babs-sync.sh |
-| `/sandbox/.ssh/spark_id` | Ed25519 keypair for sandbox -> Spark SSH (when SSH binary available). |
+| `/sandbox/babs/` | Babs' live git clone of the repo. She reads/edits/pushes directly from here. |
+| `/sandbox/.openclaw/workspace/` | Babs' workspace: SOUL.md, IDENTITY.md, USER.md, TOOLS.md. Re-seed after pod restart. |
+| `/sandbox/.git-credentials` | GitHub PAT for Babs' git push access (mode 600). Re-seed after pod restart. |
+| `/etc/babs-bridge-tls/` | Self-signed TLS cert + key for babs-bridge HTTPS. |
 
 ## Architecture Documents
 

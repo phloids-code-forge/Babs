@@ -56,18 +56,24 @@
 
 ## Filesystem Access from Sandbox
 
-Babs runs inside the OpenShell sandbox (Landlock policy: read/write `/sandbox` and `/tmp` only).
+Babs runs inside the OpenShell sandbox. The Babs git repo is cloned at `/sandbox/babs/`.
 
-**To read Spark files:** They're synced into the sandbox. Run `babs-sync.sh` on Spark to refresh.
-- Babs repo docs: `/sandbox/.openclaw/workspace/babs/` (CLAUDE.md, docs/, src/)
-- Workspace files: `/sandbox/.openclaw/workspace/` (SOUL.md, IDENTITY.md, USER.md, TOOLS.md)
+**To read or edit repo files:** Work directly in `/sandbox/babs/`. It's a live git clone.
 
-**To run commands on Spark:** The Babs Bridge service is built but not yet active (requires sandbox rebuild to open the network policy). Planned for Phase 10.
-
-**Sync command (run on Spark):**
+**To commit and push changes:**
 ```bash
-bash ~/babs/scripts/babs-sync.sh
+cd /sandbox/babs
+git add -p        # review changes
+git commit -m "your message"
+git push
 ```
+
+**To pull latest from Spark (after phloid or Claude Code commits):**
+```bash
+cd /sandbox/babs && git pull
+```
+
+**To run commands on Spark:** Not yet possible. OpenShell 0.0.6 proxy blocks sandbox→host connections (SSRF protection). Planned for a future OpenShell release.
 
 ## Directory Structure on Spark
 

@@ -17,6 +17,7 @@ Usage (from sandbox):
 """
 
 import os
+import ssl
 import json
 import hmac
 import hashlib
@@ -28,6 +29,8 @@ BIND_HOST = os.environ.get("BABS_BRIDGE_HOST", "0.0.0.0")
 BIND_PORT = int(os.environ.get("BABS_BRIDGE_PORT", "7222"))
 DEFAULT_CWD = os.environ.get("BABS_BRIDGE_CWD", "/home/dave")
 DEFAULT_TIMEOUT = 60
+TLS_CERT = os.environ.get("BABS_BRIDGE_CERT", "")
+TLS_KEY = os.environ.get("BABS_BRIDGE_KEY", "")
 
 
 def check_token(request_token: str) -> bool:
@@ -111,5 +114,14 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     server = HTTPServer((BIND_HOST, BIND_PORT), BridgeHandler)
-    print(f"[bridge] listening on http://{BIND_HOST}:{BIND_PORT} (Docker bridge only)")
+
+    if TLS_CERT and TLS_KEY:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(TLS_CERT, TLS_KEY)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+    else:
+        scheme = "http"
+
+    print(f"[bridge] listening on {scheme}://{BIND_HOST}:{BIND_PORT}")
     server.serve_forever()
