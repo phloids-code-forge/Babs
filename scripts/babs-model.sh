@@ -27,7 +27,7 @@ SANDBOX_JSON="/sandbox/.openclaw/openclaw.json"
 SSH="ssh openshell-nemoclaw"
 
 usage() {
-  echo "Usage: babs-model <nano|sonnet|opus|deepseek|deepseek-r1|gemini|llama|list>"
+  echo "Usage: babs-model <nano|sonnet|opus|deepseek|deepseek-r1|gemini|flash|llama|list>"
   exit 1
 }
 
@@ -75,7 +75,8 @@ case "${1:-}" in
     printf "  %-14s  %s\n" "opus"        "openrouter/anthropic/claude-opus-4-6     (\$15/\$75/M)"
     printf "  %-14s  %s\n" "deepseek"    "openrouter/deepseek/deepseek-chat         (\$0.27/\$1.10/M)"
     printf "  %-14s  %s\n" "deepseek-r1" "openrouter/deepseek/deepseek-r1           (\$0.55/\$2.19/M, reasoning)"
-    printf "  %-14s  %s\n" "gemini"      "openrouter/google/gemini-2.5-pro-preview  (\$1.25/\$10/M)"
+    printf "  %-14s  %s\n" "gemini"      "google/gemini-2.5-pro-preview-03-25       (direct, paid account)"
+    printf "  %-14s  %s\n" "flash"       "google/gemini-2.0-flash                   (direct, fast/free tier)"
     printf "  %-14s  %s\n" "llama"       "openrouter/meta-llama/llama-3.3-70b-instruct (\$0.12/\$0.30/M)"
     exit 0
     ;;
@@ -116,9 +117,16 @@ case "${1:-}" in
     ;;
 
   gemini)
-    PROVIDER="openrouter"
-    MODEL_ID="google/gemini-2.5-pro-preview"
-    DISPLAY="Gemini 2.5 Pro"
+    PROVIDER="google"
+    MODEL_ID="gemini-2.5-pro-preview-03-25"
+    DISPLAY="Gemini 2.5 Pro (direct)"
+    DO_OPENSHELL_INFERENCE=0
+    ;;
+
+  flash)
+    PROVIDER="google"
+    MODEL_ID="gemini-2.0-flash"
+    DISPLAY="Gemini 2.0 Flash (direct)"
     DO_OPENSHELL_INFERENCE=0
     ;;
 
