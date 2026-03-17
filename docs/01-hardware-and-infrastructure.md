@@ -455,3 +455,46 @@ Recommended build order (each item makes Babs more capable for the next):
 **After Phase 7, the system is in continuous build-out mode.** Each new component (Worker model serving, ComfyUI integration, Reflection Loop, Discord notifications, memory consolidation, backup automation, G14 failover) is built incrementally, with Babs assisting and phloid reviewing.
 
 ---
+
+**Phase 9: NemoClaw/OpenClaw Integration (IN PROGRESS 2026-03-17)**
+
+**Context:** NVIDIA announced OpenClaw and NemoClaw at GTC 2026 (2026-03-16). Decision: adopt OpenClaw as the agent runtime and wrap Babs integration around it, following the official DGX Spark playbook.
+
+**Rationale:** Community troubleshooting resources apply directly in a standard configuration. NemoClaw's OpenShell provides OS-level enforcement (Landlock + seccomp + netns) that is architecturally superior to our hand-rolled Trust Tier checks. The privacy router handles local/cloud model switching at the policy layer. Following the playbook also builds familiarity with the tooling the NVIDIA ecosystem is converging on.
+
+**Architecture on Spark:**
+```
+DGX Spark (Ubuntu 24.04, cgroup v2)
+  Docker (daemon.json: default-cgroupns-mode=host)
+    OpenShell gateway (nemoclaw) -- k3s embedded
+      NemoClaw sandbox pod
+        OpenClaw agent + NemoClaw security plugin
+          Inference -> host.openshell.internal:8000 -> vllm-babs Docker container
+```
+
+**What was installed:**
+- OpenShell v0.0.6 at /usr/local/bin/openshell (static aarch64 musl binary from GitHub releases)
+- NemoClaw v0.1.0 at ~/NemoClaw (git clone, npm install -g from source)
+- Node.js v24 (pre-existing via nvm), npm and node symlinked to /usr/local/bin for sudo access
+- Docker daemon.json: `{"default-cgroupns-mode": "host"}` -- required for k3s-in-Docker on cgroup v2
+
+**Known Spark-specific issues handled:**
+- cgroup v2 incompatibility with k3s: resolved by daemon.json patch above
+- Docker group permissions: dave was already in docker group
+- npm not in sudo PATH: resolved by symlinking node/npm to /usr/local/bin
+
+**Inference providers configured:**
+- `nvidia-nim`: NVIDIA cloud, Nemotron 3 Super via integrate.api.nvidia.com (default after setup)
+- `vllm-local`: our Docker vLLM on :8000, auto-detected during setup because vllm-babs was running
+
+**Active inference route:** vllm-local / nemotron3-nano (verified via vLLM access logs)
+
+**Validation gate:** PASSED. `ssh openshell-nemoclaw "openclaw agent --agent main --local -m 'how many rs are there in strawberry?' --session-id test1"` returned correct answer. vLLM logs confirmed POST /v1/chat/completions 200 OK from Docker bridge.
+
+**Remaining Phase 9 work:**
+- Define integration boundary between Babs supervisor (NATS/Python) and OpenClaw agent loop
+- Wire Babs memory (Qdrant procedural/episodic), identity (Barbara Gordon system prompt), and tools into the OpenClaw agent
+- Update Trust Tier enforcement to use OpenShell policy files
+- Test GPU passthrough flag on openshell gateway (currently untested on Spark)
+
+---

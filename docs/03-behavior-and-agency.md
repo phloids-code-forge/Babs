@@ -65,6 +65,17 @@ Design the system to safely execute external actions using the Principle of Leas
 - phloid can configure Tier overrides (e.g., promote specific Tier 2 actions to Tier 1) via version-controlled config files.
 - **Trust Tiers apply regardless of thread type.** Buddy mode does not relax approval requirements.
 
+**OpenShell Integration (Phase 9, 2026-03-17):**
+
+NemoClaw's OpenShell provides a second, complementary enforcement layer below the Trust Tier semantic policy. The two layers are distinct in what they enforce:
+
+- **Trust Tiers** define the policy: what level of human oversight an action requires, who can approve it, and what the timeout behavior is. This is a semantic layer -- it knows what an action means.
+- **OpenShell** enforces at the OS level via Landlock (filesystem access control), seccomp (system call filtering), and network namespace isolation. It prevents the sandbox from taking actions the policy layer has not explicitly permitted, regardless of what the agent requests.
+
+The mapping: Tier 0 actions (full autonomy) map to OpenShell-permitted operations that require no additional approval. Tier 2/3 actions that involve network egress or filesystem writes outside the sandbox boundary should require an explicit OpenShell policy rule before the operation is permitted. This means a compromised or confused agent cannot bypass Trust Tier policy by making direct OS calls -- OpenShell enforces the boundary regardless.
+
+OpenShell policy files are version-controlled configuration, not runtime agent decisions. phloid approves policy changes the same way phloid approves Trust Tier overrides. Define the policy file schema and the mapping from Trust Tier assignments to OpenShell rules as part of the Phase 9 integration work. See docs/05-open-questions.md item 28.
+
 **Discord Notification Service:**
 - Hosted on the G14 auxiliary node. A lightweight service on the pub/sub bus that listens for notification events (Tier 2/3 approval requests, system alerts, proactive notifications from the Event Listener) and dispatches them to a private Discord server via bot API or webhook.
 - Tier 2/3 approval requests are posted as rich embeds with inline reaction buttons (approve/reject). phloid taps the reaction, the bot relays the response back to the orchestration layer via the pub/sub bus.

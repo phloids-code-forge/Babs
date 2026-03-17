@@ -1,8 +1,8 @@
 # Architecture Prompt: File Index
 
-**Prompt Version:** 6.5
-**Last Updated:** 2026-03-13
-**Status:** Phase 8 Complete. Workers, isolated Jupyter execution, and persistent model routing implementation verified. Multi-agent hierarchy (Supervisor/Worker) is operational with integrated Episodic Memory and real-time model switching.
+**Prompt Version:** 6.6
+**Last Updated:** 2026-03-17
+**Status:** Phase 8 Complete. Phase 9 (NemoClaw/OpenClaw integration) in progress. OpenShell gateway running, vllm-local provider confirmed against our Docker vLLM. OpenClaw is the adopted agent runtime. Babs supervisor/memory/dashboard integration with the OpenClaw agent loop is next.
 
 ---
 

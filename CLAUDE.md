@@ -10,7 +10,7 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - **Auxiliary node (G14):** ASUS ROG Zephyrus G14, headless Ubuntu 24.04 LTS Server, RTX 3060 Mobile 6GB, 40GB RAM, 1TB SSD. At `ssh g14` (Tailscale 100.101.118.78). OS and networking complete, service deployment pending.
 - **Dev machine (PX13):** Dave's workstation. Windows. Connects via VS Code Remote SSH over Tailscale.
 
-## Current State (2026-03-15 Updated)
+## Current State (2026-03-17 Updated)
 
 ### System Stability
 
@@ -19,8 +19,8 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 
 ### What's Running
 
-| Container | Image | Port | Status |
-|-----------|-------|------|--------|
+| Container / Service | Image / Binary | Port | Status |
+|---------------------|----------------|------|--------|
 | vllm-babs | avarok/vllm-dgx-spark:v11 | 8000 | Running stable. Nemotron 3 Nano 30B-A3B NVFP4. 65+ tok/s. |
 | nats-babs | nats:latest | 4222, 8222, 6222 | Running. JetStream enabled. Data at ~/babs-data/nats. |
 | babs-supervisor | docker-supervisor (custom) | -- | Running. Routes NATS -> vLLM, manages tools, retrieves from Procedural Memory. |
@@ -28,30 +28,43 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 | babs-dashboard | docker-dashboard (custom) | 3000 | Running. Primary interface. http://100.109.213.22:3000 |
 | comfyui-babs | comfyui-spark:latest | 8188 | Running. NVFP4 active. 70GB memory cap. |
 | babs-jupyter | custom | -- | Running. |
+| openshell-gateway | k3s-in-Docker (managed by openshell) | -- | Running. NemoClaw gateway. Manages inference routing and sandbox policy enforcement. |
+| nemoclaw-sandbox | openshell/sandbox-from:* | -- | Running. OpenClaw agent runtime with NemoClaw security plugin. Inference -> vllm-local (:8000). |
 | open-webui | ghcr.io/open-webui/open-webui:main | 8080 | Stopped (replaced by dashboard). |
 
-### Super Model Investigation (2026-03-15 Updated)
+### Super Model Investigation (2026-03-17 Updated)
 
-**Finding:** Nemotron 3 Super 120B-A12B NVFP4 runs on vLLM 0.17.0rc0+cu130 but at ~1 tok/s (unusable).
+**Finding:** Nemotron 3 Super 120B-A12B NVFP4 previously ran at ~1 tok/s (unusable). Community patches now bring single-node Spark to 14-16 tok/s. Still not interactive-fast but the path forward is clear.
 
 **Root cause summary:** Two-version trap:
 - vLLM 0.16.x (avarok v23 base): Knows SM_121 is FP4-capable (avarok patches), but rejects MIXED_PRECISION quant during model config validation.
 - vLLM 0.17.0rc0 (upstream): Accepts MIXED_PRECISION, model loads and serves, but treats SM_121 as FP4-incapable -- falls back to Marlin software-emulated FP4 at ~1 tok/s.
 
+**Community patch update (2026-03-16):** namake-taro published vLLM 0.17.0 MXFP4 patches for DGX Spark (github.com/namake-taro/vllm-custom) that fix a shared memory race condition in the Marlin MoE 256-thread kernel on SM121. With these patches and the env vars below, single-node Super runs at 14-16 tok/s. Two-node TP=2 reaches 80 tok/s on gpt-oss-120b.
+
+**Env vars that improve single-node Super performance:**
+```
+VLLM_NVFP4_GEMM_BACKEND=marlin
+VLLM_TEST_FORCE_FP8_MARLIN=1
+VLLM_MARLIN_USE_ATOMIC_ADD=1
+--kv-cache-dtype fp8
+--load-format fastsafetensors
+```
+
 **What was built (2026-03-15):**
 - `docker/Dockerfile.vllm-super`: avarok/dgx-vllm-nvfp4-kernel:v23 base + vLLM 0.17.0rc0+cu130 aarch64 wheel + flashinfer pinned to 0.6.3
 - Image tag: `vllm-super` (built and cached on Spark)
-- The image works -- model loads 17 shards (69.5 GiB), serves requests correctly -- just slowly.
+- The image works -- model loads 17 shards (69.5 GiB), serves requests correctly.
 - FlashInfer TRTLLM/CUTLASS backends fail at JIT compile time on SM_121a with 0.17.0rc0.
-- Marlin backend works but is software FP4 emulation.
+- Marlin backend works but is software FP4 emulation (hence the low speed without patches).
 
-**What unlocks this:**
-- avarok v24+ image shipping vLLM 0.17.x with SM_121 FP4 kernel patches applied. v23 is still latest as of 2026-03-15.
-- OR upstream vLLM merging the SM_121 FP4 capability detection that avarok has in their custom builds.
+**What fully unlocks this:**
+- avarok v24+ image shipping vLLM 0.17.x with SM_121 FP4 kernel patches applied. v23 is still latest as of 2026-03-17.
+- OR apply namake-taro patches manually to the vllm-super image.
 
-**Decision:** Parked again. Nano is the active model. Do not delete `vllm-super` image -- it's the working base for when avarok ships v24.
+**NemoClaw angle:** The `nvidia-nim` provider in NemoClaw points at NVIDIA cloud Nemotron Super via API. When Super becomes the local active model, switch the inference route: `openshell inference set --provider vllm-local --model nemotron3-super`.
 
-**Super weights:** `~/babs-data/models/nemotron3-super-nvfp4/` (75GB). Keep.
+**Decision:** Parked. Nano is the active local model. Do not delete `vllm-super` image. Do not delete Super weights (75GB at `~/babs-data/models/nemotron3-super-nvfp4/`).
 
 ### Dev Environment (2026-03-14 Updated)
 
@@ -85,39 +98,19 @@ Babs is a local-first autonomous AI assistant running on a two-node home cluster
 - Whisper STT (port 9000, whisper-medium on GPU)
 - GPU utilization: 425MB / 6GB (7%)
 
-**Super Model Upgrade: Deferred.**
-Nemotron 3 Super 120B crashes on SM121. Weights parked at ~/babs-data/models/nemotron3-super-nvfp4/.
-Will revisit when a fix lands. Nano is the active Supervisor model and is running stable.
-
 **Phase 7 Complete (2026-03-13).**
 Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + Tools -> vLLM.
-
-**Phase 7.5 - Model Picker Implementation (2026-03-13)**
-- ✅ **OpenRouter Integration:** src/supervisor/openrouter.py - Connects to OpenRouter API, fetches 344 models, cost tracking with $5 warning/$20 limit
-- ✅ **Model Registry:** src/supervisor/model_registry.py - Scans local models (~/babs-data/models/), merges with OpenRouter catalog, memory footprint calculation
-- ✅ **Dashboard APIs:** src/dashboard/dashboard.py - /api/models/list, /api/model/select, /api/costs/session/{id}, /api/memory/summary
-- ✅ **Model Picker UI:** src/dashboard/static/model_picker.html - Alpine.js + Tailwind interface with search, filtering, notifications
-- ✅ **Live URLs:**
-  - Dashboard: http://100.109.213.22:3000
-  - Model Picker: http://100.109.213.22:3000/static/model_picker.html
-  - API: http://100.109.213.22:3000/api/models/list
-
-**Model picker status:** UI functional, selection publishes to NATS, awaiting Supervisor model switching implementation.
 
 **Phase 7.5 - Model Picker & Dashboard Enhancements (COMPLETE ✅):**
 1. ✅ OpenRouter API integration (model discovery, routing, cost tracking)
 2. ✅ Model picker UI in dashboard (local + OpenRouter models, filtering, search)
-3. ⏸️ Model download agent (Deferred to Phase 8 Workers)
-4. ⏸️ Smart download management (Deferred to Phase 8 Workers)
-5. ✅ Model switching (hot-swap without restart, thread isolation)
-6. ✅ Cost tracking & budget alerts (session costs, comparison to local)
-7. ✅ Trust Tier integration (enforce local-only for sensitive operations)
-8. ✅ Dashboard Home Navigation (persistent home access)
-9. ✅ Thinking Transparency (WebSocket streaming of supervisor reasoning)
-10. ✅ Multi-modal Input (File/Image attachment parsing and uploads)
-11. ✅ Artifact Display System (Qdrant storage and real-time visualization rendering)
-
-**Rationale:** Enhanced the dashboard to provide full parity with Open WebUI features (file uploads, artifacts, transparency) while enabling OpenRouter fallback. Model downloading logic has been deferred to native background workers in Phase 8.
+3. ✅ Model switching (hot-swap without restart, thread isolation)
+4. ✅ Cost tracking & budget alerts (session costs, comparison to local)
+5. ✅ Trust Tier integration (enforce local-only for sensitive operations)
+6. ✅ Dashboard Home Navigation (persistent home access)
+7. ✅ Thinking Transparency (WebSocket streaming of supervisor reasoning)
+8. ✅ Multi-modal Input (File/Image attachment parsing and uploads)
+9. ✅ Artifact Display System (Qdrant storage and real-time visualization rendering)
 
 **Phase 8 - Supervisor Hardening & Tool Expansion (COMPLETE ✅ 2026-03-15):**
 1. ✅ Bug fixes: workers.py logger import, blocking OpenRouter call (run_in_executor)
@@ -127,7 +120,21 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 5. ✅ Persistent thread storage -- SQLite at ~/babs-data/threads.db, conversations survive supervisor restarts
 6. ✅ Reflection loop model name fix -- dreaming now works correctly with Nano
 
-**Latest handoff:** HANDOFF-2026-03-15-CURRENT.md
+**Phase 9 - NemoClaw/OpenClaw Integration (IN PROGRESS 2026-03-17):**
+
+**Context:** NVIDIA announced OpenClaw and NemoClaw at GTC 2026 (2026-03-16). OpenClaw is the community open-source agent platform. NemoClaw is NVIDIA's security layer on top: OpenShell (Landlock + seccomp + netns sandbox), a privacy router (local/cloud inference switching), and Nemotron model integration. Decision: adopt OpenClaw/NemoClaw as the agent runtime and wrap Babs integration around it, following the official DGX Spark playbook. Rationale: community troubleshooting resources, standard configuration, career familiarity.
+
+1. ✅ OpenShell v0.0.6 installed at /usr/local/bin/openshell (static aarch64 binary)
+2. ✅ NemoClaw v0.1.0 cloned at ~/NemoClaw and installed globally via npm
+3. ✅ Docker daemon patched: default-cgroupns-mode=host (required for k3s-in-Docker on cgroup v2)
+4. ✅ OpenShell gateway started (name: nemoclaw, Ready)
+5. ✅ nvidia-nim provider configured (NVIDIA cloud, Nemotron Super via integrate.api.nvidia.com)
+6. ✅ vllm-local provider configured (auto-detected our vllm-babs Docker container on :8000)
+7. ✅ NemoClaw sandbox built and running (openclaw@2026.3.11 + NemoClaw plugin inside)
+8. ✅ vLLM endpoint verified: inference routes OpenShell -> host.openshell.internal:8000 -> vllm-babs. Confirmed via vLLM access logs.
+9. ⏸ Babs supervisor/memory/dashboard integration with OpenClaw agent loop (next)
+
+**Latest handoff:** HANDOFF-2026-03-17-NEMOCLAW.md
 
 ## Key Filesystem Paths
 
@@ -142,6 +149,10 @@ Full stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + T
 | `~/babs-data/open-webui/` | Open WebUI persistent data. |
 | `~/babs/scripts/super_v3_reasoning_parser.py` | Reasoning parser for Super model (not used with Nano). |
 | `~/.local/bin/hf` | HuggingFace CLI. |
+| `~/NemoClaw/` | NemoClaw source repo (v0.1.0, installed from here). |
+| `~/.nemoclaw/credentials.json` | NemoClaw credentials (NVIDIA_API_KEY, mode 600). |
+| `~/.openclaw/` | OpenClaw agent config (host-side; also present inside sandbox at /sandbox/.openclaw). |
+| `~/.ssh/config` | Contains openshell-nemoclaw SSH entry for sandbox access. |
 
 ## Architecture Documents
 
@@ -190,18 +201,22 @@ docker run -d --name vllm-babs \
   --host 0.0.0.0 --port 8000
 ```
 
-**Super (parked, crashes on SM121):**
+**Super (parked -- 14-16 tok/s single-node with Marlin patches, not yet interactive-fast):**
 ```bash
 docker run -d --name vllm-babs \
   --gpus all --ipc=host -p 8000:8000 \
+  -e VLLM_NVFP4_GEMM_BACKEND=marlin \
+  -e VLLM_TEST_FORCE_FP8_MARLIN=1 \
+  -e VLLM_MARLIN_USE_ATOMIC_ADD=1 \
   -v ~/babs-data/models/nemotron3-super-nvfp4:/model \
   -v ~/babs-data/cache:/root/.cache \
   -v ~/babs/scripts:/scripts \
-  vllm-node \
+  vllm-super \
   vllm serve /model \
   --served-model-name nemotron3-super \
   --dtype auto --kv-cache-dtype fp8 \
   --quantization modelopt_fp4 \
+  --load-format fastsafetensors \
   --tensor-parallel-size 1 \
   --trust-remote-code \
   --gpu-memory-utilization 0.85 \
@@ -211,4 +226,43 @@ docker run -d --name vllm-babs \
   --tool-call-parser qwen3_coder \
   --reasoning-parser-plugin /scripts/super_v3_reasoning_parser.py \
   --reasoning-parser super_v3
+```
+
+## NemoClaw Commands Reference
+
+**Check gateway and sandbox status:**
+```bash
+openshell status
+openshell sandbox list
+```
+
+**Switch inference route (local vLLM vs NVIDIA cloud):**
+```bash
+# Use our local vLLM (Nano or Super)
+openshell inference set --no-verify --provider vllm-local --model nemotron3-nano
+
+# Use NVIDIA cloud (Super via API -- useful while local Super is slow)
+openshell inference set --provider nvidia-nim --model nvidia/nemotron-3-super-120b-a12b
+```
+
+**Run an OpenClaw agent query:**
+```bash
+ssh openshell-nemoclaw "openclaw agent --agent main --local -m 'your message' --session-id s1"
+```
+
+**Connect interactively to sandbox:**
+```bash
+openshell sandbox connect nemoclaw
+# then inside: openclaw tui
+```
+
+**Rebuild sandbox after NemoClaw changes:**
+```bash
+export NVIDIA_API_KEY=$(python3 -c "import json; print(json.load(open('/home/dave/.nemoclaw/credentials.json'))['NVIDIA_API_KEY'])")
+cd ~/NemoClaw && bash scripts/setup.sh
+```
+
+**Monitor network egress from sandbox:**
+```bash
+openshell term
 ```

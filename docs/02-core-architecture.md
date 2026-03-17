@@ -116,8 +116,14 @@ The test-before-download flow uses the registry directly: a model starts as a `r
 ## Section 2: Orchestration & Communication
 
 **Agent Orchestration:**
-- Define the orchestration framework explicitly. Options include a custom lightweight Python state machine, LangGraph, or similar. Justify the choice with tradeoffs (dependency weight, flexibility, debuggability, community support).
-- The orchestration layer must support: task decomposition, parallel fan-out to multiple Workers, result aggregation, retry logic, and priority-based preemption.
+
+**RESOLVED (2026-03-17): OpenClaw adopted as the agent runtime framework.**
+
+OpenClaw (via NemoClaw) is the agent runtime. This was chosen at Phase 9 following the NVIDIA GTC 2026 announcement. Key rationale: community-standard configuration means troubleshooting resources apply directly; OpenShell provides OS-level enforcement that is architecturally stronger than a hand-rolled policy layer; the NVIDIA ecosystem is converging on this stack.
+
+The integration model is: OpenClaw is the agent execution runtime. The Babs supervisor wraps around it, injecting memory context (Qdrant procedural/episodic retrieval), identity (Barbara Gordon system prompt), and tool registrations into the OpenClaw agent configuration. NATS remains the pub/sub backbone for inter-service communication. OpenShell (the NemoClaw security layer) provides the sandbox boundary and policy enforcement. Inference routing (local vLLM vs. NVIDIA cloud) is handled by the OpenShell gateway inference route, not hardcoded in the supervisor.
+
+The orchestration layer must support: task decomposition, parallel fan-out to multiple Workers, result aggregation, retry logic, and priority-based preemption. OpenClaw's agent loop handles the single-agent execution path. Multi-Worker fan-out remains a Babs supervisor responsibility, dispatching to Worker model endpoints outside the sandbox.
 
 **Pub/Sub Bus:**
 - Anchor the entire inter-agent communication layer on a Pub/Sub message broker (Redis Streams, MQTT, or NATS). Justify the choice.

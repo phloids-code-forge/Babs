@@ -2,7 +2,7 @@
 
 **Prompt Version:** 5.9
 **Last Updated:** 2026-03-12
-**Status:** Phase 1 in progress. vLLM serving Nemotron 3 Super NVFP4 at 14.8 tok/s (sustained). SM121 illegal instruction crash during extended generation under investigation (--enforce-eager untested, Nano fallback available). Open WebUI pulled but not yet connected to a stable backend. Directory structure and git repo initialized. G14 auxiliary node OS and networking complete, service deployment pending.
+**Status:** Phase 8 complete (2026-03-15). Phase 9 (NemoClaw/OpenClaw integration) in progress as of 2026-03-17. Full Babs stack operational: Dashboard -> NATS -> Supervisor -> Procedural Memory + Tools -> vLLM (Nano, 65+ tok/s). OpenShell gateway running, vllm-local provider verified against our Docker vLLM container. Babs supervisor/memory integration with OpenClaw agent loop is the next step. Nemotron 3 Super NVFP4 parked at 14-16 tok/s single-node (community Marlin patches); not yet interactive-fast. Awaiting avarok v24 or further community patches.
 
 ---
 
